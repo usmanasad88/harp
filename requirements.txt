@@ -5,3 +5,9 @@ PyPDF2
 langchain
 langchain_google_genai
 langchain_community
+python-dotenv
+speechrecognition
+gtts
+pygame
+translators
+pyngrok
