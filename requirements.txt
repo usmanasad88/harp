@@ -2,3 +2,4 @@ streamlit
 streamlit_option_menu
 streamlit_lottie
 PyPDF2
+langchain.text_splitter
