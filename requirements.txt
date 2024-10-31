@@ -3,3 +3,4 @@ streamlit_option_menu
 streamlit_lottie
 PyPDF2
 langchain
+langchain_google_genai
