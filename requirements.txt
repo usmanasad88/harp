@@ -11,4 +11,3 @@ gtts
 pygame
 translators
 pyngrok
-pyaudio
