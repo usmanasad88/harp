@@ -11,3 +11,8 @@ gtts
 pygame
 translators
 pyngrok
+pydub
+pyaudio 
+webrtcvad
+aiofiles
+pynput
