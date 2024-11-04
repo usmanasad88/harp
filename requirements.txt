@@ -11,8 +11,11 @@ gtts
 pygame
 translators
 pyngrok
-pydub
-pyaudio 
+pydub 
 webrtcvad
 aiofiles
 pynput
+openai
+openai-whisper
+pyaudio
+langchain_ollama

@@ -21,7 +21,7 @@ AUDIO_FOLDER = "audio"
 stop_recording = False
 client = OpenAI()
 #model = whisper.load_model("small")
-model=whisper.load_model("medium.en")
+model=whisper.load_model("turbo")
 model
 
 
@@ -91,7 +91,7 @@ def text_to_speech_openai(text, output_filename):
     response.stream_to_file(output_filename)
     return 
 
-#record_audio()
+record_audio()
 #print("Recording completed.")
 audio="audio/audio_chunk_0.wav"
 text, lang= transcribe_audio_chunks(audio)
