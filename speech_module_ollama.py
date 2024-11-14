@@ -123,7 +123,48 @@ def main():
     st.set_page_config("HARP")
     st.title("--")
     agent = ConversationalAgent()
+    # Initialize session state
+    if 'recording' not in st.session_state:
+        st.session_state.recording = False
 
+    # Define the button style
+    button_style = """
+    <style>
+        .big-button {
+            font-size: 24px;
+            background-color: #FF4B4B;  /* Red color for 'Record' */
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+        }
+        .big-button.stButton .stActionButton { 
+            font-size: 24px; 
+            background-color: #4CAF50; /* Green color for 'Stop Recording' */
+            color: white; 
+        }
+    </style>
+    """
+
+    # Display the custom style in the app
+    st.markdown(button_style, unsafe_allow_html=True)
+
+    # Create the button with different text and style based on the recording state
+    if st.session_state.recording:
+        button_text = "Stop Recording"
+    else:
+        button_text = "Record"
+
+    # Use a conditional for styling based on the state
+    if st.button(button_text, key="record", css_class="big-button"):
+        st.session_state.recording = not st.session_state.recording
+
+    # Provide feedback based on the recording state
+    if st.session_state.recording:
+        st.write("Recording in progress...")
+    else:
+        st.write("Click the button to start recording.")
     text = st.text_input("Enter your text here:")
     inputtext=text
 

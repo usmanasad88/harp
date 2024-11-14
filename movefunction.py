@@ -30,7 +30,7 @@ tools = [
   }
 ]
 
-messages = [{"role": "user", "content": "really"}]
+messages = [{"role": "user", "content": "Move towards me. Straight ahead"}]
 
 
 response = completion(
