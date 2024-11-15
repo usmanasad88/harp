@@ -15,7 +15,7 @@ FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 44100
 CHUNK = 1024
-CHUNK_DURATION = 5  # Duration of each chunk in seconds
+CHUNK_DURATION = 10  # Duration of each chunk in seconds
 CHUNK_FRAMES = int(RATE / CHUNK * CHUNK_DURATION)
 AUDIO_FOLDER = "audio"
 
@@ -52,22 +52,22 @@ def record_audio():
 
     chunk_index = 0
 
-    while not stop_recording:
-        frames = []
-        for _ in range(CHUNK_FRAMES):
-            data = stream.read(CHUNK)
-            frames.append(data)
+    #while not stop_recording:
+    frames = []
+    for _ in range(CHUNK_FRAMES):
+        data = stream.read(CHUNK)
+        frames.append(data)
 
-        chunk_filename = os.path.join(AUDIO_FOLDER, f"audio_chunk_{chunk_index}.wav")
-        with wave.open(chunk_filename, 'wb') as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(audio.get_sample_size(FORMAT))
-            wf.setframerate(RATE)
-            wf.writeframes(b''.join(frames))
+    chunk_filename = os.path.join(AUDIO_FOLDER, f"audio_chunk_{chunk_index}.wav")
+    with wave.open(chunk_filename, 'wb') as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(audio.get_sample_size(FORMAT))
+        wf.setframerate(RATE)
+        wf.writeframes(b''.join(frames))
 
-        print(f"Saved {chunk_filename}")
+    print(f"Saved {chunk_filename}")
 
-        chunk_index += 1
+    chunk_index += 1
 
     print("Finished recording")
 
@@ -92,14 +92,14 @@ def text_to_speech_openai(text, output_filename):
     response.stream_to_file(output_filename)
     return 
 
-record_audio()
-print("Recording completed.")
-audio="audio/audio_chunk_0.wav"
-text, lang= transcribe_audio_chunks(audio)
-no_one_talking = not re.search(r'\b\w+\b', text)
-print("No one is talking", no_one_talking)
-print(text)
-speech_file_path = "/home/rml/harp/speech.mp3"
-text_to_speech_openai(text,speech_file_path)
-playsound(speech_file_path)
+#record_audio()
+#print("Recording completed.")
+#audio="audio/audio_chunk_0.wav"
+#text, lang= transcribe_audio_chunks(audio)
+#no_one_talking = not re.search(r'\b\w+\b', text)
+#print("No one is talking", no_one_talking)
+#print(text)
+#speech_file_path = "/home/rml/harp/speech.mp3"
+#text_to_speech_openai(text,speech_file_path)
+#playsound(speech_file_path)
 

@@ -10,7 +10,7 @@ import time
 from PIL import Image
 from openai import OpenAI
 import threading
-
+import re
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import google.generativeai as genai
 from langchain_community.vectorstores import FAISS
@@ -116,13 +116,33 @@ def main():
     
     while talk:
         st.text_area(label="Response:", value="Talk Pressed", height=350)
+        record_audio()
+        print("Recording completed.")
+        audio="audio/audio_chunk_0.wav"
+        ttext, lang= transcribe_audio_chunks(audio)
+        no_one_talking = not re.search(r'\b\w+\b', text)
+        print("No one is talking", no_one_talking)
+        print(ttext)
         talk=False
 
-    audio_value = st.audio_input("Record a voice message")
+        with st.spinner("Generating..."):
+            agent.load_conversation_history()
+            response = agent.get_response(ttext)
+            agent.save_conversation_history()
+            
+            # Remove * in output from LLM model
+            filtered_response = remove_star(response)
+            
+            # Convert text to speech
+            speech_file_path = "/home/mani/harp/speech.mp3"
+            #text_to_speech_openai(filtered_response,speech_file_path)
 
-    if audio_value:
-        st.audio(audio_value)
+            # Display response and play audio
+            st.text_area(label="Response:", value=filtered_response, height=350)
+            #st.audio(sound, autoplay=True)
+            playsound(speech_file_path)
 
+    
     enable = st.checkbox("Enable camera")
     picture = st.camera_input("Take a picture", disabled=not enable)
 
