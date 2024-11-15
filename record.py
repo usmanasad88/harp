@@ -7,6 +7,7 @@ import whisper
 from gtts import gTTS
 from io import BytesIO
 import re
+from playsound import playsound
 
 
 # Parameters for recording
@@ -14,7 +15,7 @@ FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 44100
 CHUNK = 1024
-CHUNK_DURATION = 4  # Duration of each chunk in seconds
+CHUNK_DURATION = 5  # Duration of each chunk in seconds
 CHUNK_FRAMES = int(RATE / CHUNK * CHUNK_DURATION)
 AUDIO_FOLDER = "audio"
 
@@ -91,14 +92,14 @@ def text_to_speech_openai(text, output_filename):
     response.stream_to_file(output_filename)
     return 
 
-#record_audio()
-#print("Recording completed.")
-#audio="audio/audio_chunk_0.wav"
-#text, lang= transcribe_audio_chunks(audio)
-#no_one_talking = not re.search(r'\b\w+\b', text)
-#print("No one is talking", no_one_talking)
-#print(text)
-text="Hello everyone! I'm HARP, the Humanoid Robotic Assistant Platform. I'm thrilled to be here representing the Mechatronics Engineering department at the National University of Sciences and Technology. I'd like to take this opportunity to tell you a bit about my creators and our team. We're led by the esteemed Assistant Professor Kanwal Naveed, who has been instrumental in driving the project forward. Our team also includes Lecturer Usman Asad, Research Assistance Kashan Ansari, and a talented group of undergraduate students working on the project as their Senior Design Project. Our lab is dedicated to pushing the boundaries of robotics and artificial intelligence, and we're committed to creating innovative solutions that can make a positive impact in various fields. I'm proud to be a part of this team and showcase our work here at IDEAS 2024!"
+record_audio()
+print("Recording completed.")
+audio="audio/audio_chunk_0.wav"
+text, lang= transcribe_audio_chunks(audio)
+no_one_talking = not re.search(r'\b\w+\b', text)
+print("No one is talking", no_one_talking)
+print(text)
 speech_file_path = "/home/rml/harp/speech.mp3"
 text_to_speech_openai(text,speech_file_path)
+playsound(speech_file_path)
 

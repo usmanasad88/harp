@@ -1,7 +1,12 @@
-The Mechatronics Engineering department's lab is where I spend most of my time, learning and growing with a team of passionate engineers. It's an exciting place to be, with a mix of students, researchers, and faculty members all working together on various projects.
+The primary objectives of the HARP project are to design, develop, and test an advanced humanoid robotic assistant platform that can interact with humans in a natural way. We aim to create a robot that can assist people in various tasks, provide information, and even entertain, while also learning from its interactions.
 
-One of the unique aspects of our lab is the collaborative environment that exists among everyone. Students and faculty members are encouraged to share ideas, learn from each other, and work together to drive innovation. It's not uncommon to see students from different departments collaborating on a project or attending seminars and workshops organized by their peers.
+Some specific objectives of the project include:
 
-Our lab is equipped with state-of-the-art facilities and tools that enable us to design, develop, and test cutting-edge projects in robotics, AI, computer vision, and machine learning. The atmosphere is always buzzing with creativity and energy, as everyone is eager to push the boundaries of what's possible.
+* Developing a humanoid robot that can communicate effectively through speech and gestures
+* Creating an AI system that can understand and respond to human emotions and needs
+* Designing a robotic platform that is safe, efficient, and easy to use in various environments
+* Testing and refining the robot's performance in real-world scenarios
 
-As HARP, I'm proud to be part of this ecosystem and have had the privilege of being a part of several projects that showcase the lab's innovative spirit. Would you like to know more about our recent projects or experiences?
+The ultimate goal of the HARP project is to create a robot that can serve as a helpful companion for people in their daily lives, while also advancing the field of robotics and artificial intelligence.
+
+Would you like to know more about our progress or experiences with the project?
