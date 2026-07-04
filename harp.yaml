@@ -1,0 +1,27 @@
+# HARP settings you can tweak. Restart HARP after editing.
+# Secrets (API keys) stay in .env — this file is for behavior knobs.
+
+listener:                  # the always-on wake listener (harp/listener)
+  enabled: true
+  # Sound levels are 0.0 – 1.0. Watch your own live level with:
+  #     uv run python -m harp.listener
+  wake_level: 0.25         # sound at least this loud wakes HARP by itself
+                           # (set to 1.0 to disable loudness-only wake)
+  transcribe_level: 0.04   # sound this loud starts the wake-word transcriber
+  # If a transcribed phrase contains one of these words, HARP wakes up.
+  wake_words: [hey, hi, hello, laila, harp, salam, salaam, assalam]
+  max_phrase_seconds: 5.0  # longest phrase the transcriber will capture
+  silence_seconds: 0.8     # this much quiet ends the captured phrase
+  # Whisper model used for wake-word transcription: tiny | base | small
+  # (bigger = more accurate but slower; downloaded automatically on first use)
+  whisper_model: base
+
+heartbeat:
+  file: .harp/heartbeat    # the agent touches this file every beat; the
+  interval_seconds: 5      # watchdog reads its age to see the agent is alive
+
+dashboard:                 # the dev dashboard (harp/dashboard)
+  bind: network             # localhost = only this PC; network = also reachable
+                            # from your phone/other PCs on the same Wi-Fi/LAN
+                            # (app.py prints this machine's LAN IP at startup)
+  port: 8787

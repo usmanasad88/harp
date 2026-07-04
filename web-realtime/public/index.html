@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Laila · live</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body data-state="idle" data-turn="listening">
+    <div class="ambient" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="wordmark">
+        <span class="tilde">≈</span> Laila
+        <span class="sub">reception · live</span>
+      </div>
+      <div class="meta">
+        <span id="modelTag" class="chip mono">—</span>
+        <span class="status" id="statusChip">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="statusText">offline</span>
+        </span>
+      </div>
+    </header>
+
+    <main class="stage">
+      <div class="orb-wrap">
+        <canvas id="orb" width="640" height="640" aria-hidden="true"></canvas>
+        <div class="orb-label">
+          <span id="turnLabel">tap to begin</span>
+        </div>
+      </div>
+
+      <button id="callBtn" class="call" type="button" aria-live="polite">
+        <span class="call-icon" aria-hidden="true"></span>
+        <span id="callText">Begin session</span>
+      </button>
+
+      <p id="hint" class="hint">
+        Speak in English or Urdu — Laila listens and replies out loud.
+      </p>
+    </main>
+
+    <section class="transcript-panel" aria-label="Live transcript">
+      <div class="transcript-head">
+        <span>transcript</span>
+        <button id="clearBtn" class="ghost" type="button">clear</button>
+      </div>
+      <div id="transcript" class="transcript" role="log" aria-live="polite"></div>
+    </section>
+
+    <footer class="telemetry mono">
+      <span><i>reply</i> <b id="latency">—</b></span>
+      <span><i>session</i> <b id="sessionTimer">0:00</b></span>
+      <span><i>voice</i> <b id="voiceTag">—</b></span>
+      <span><i>vad</i> <b id="vadTag">idle</b></span>
+    </footer>
+
+    <!-- Laila's audio output. Muted until a session starts (autoplay policy). -->
+    <audio id="lailaAudio" autoplay></audio>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,121 @@
+{
+  "generated": "2026-07-02",
+  "generator": "scripts/generate_status_voice.py",
+  "engine": "kokoro (hexgrad/Kokoro-82M)",
+  "sample_rate": 24000,
+  "format": "wav, mono, 16-bit PCM",
+  "lines": {
+    "starting_up": {
+      "en": {
+        "text": "Starting up.",
+        "file": "en/starting_up.wav",
+        "voice": "af_heart",
+        "duration_s": 1.55
+      }
+    },
+    "connection_established": {
+      "en": {
+        "text": "Connection established.",
+        "file": "en/connection_established.wav",
+        "voice": "af_heart",
+        "duration_s": 1.93
+      }
+    },
+    "ready": {
+      "en": {
+        "text": "I'm ready.",
+        "file": "en/ready.wav",
+        "voice": "af_heart",
+        "duration_s": 1.52
+      }
+    },
+    "listening": {
+      "en": {
+        "text": "I'm listening.",
+        "file": "en/listening.wav",
+        "voice": "af_heart",
+        "duration_s": 1.6
+      }
+    },
+    "one_moment": {
+      "en": {
+        "text": "One moment, please.",
+        "file": "en/one_moment.wav",
+        "voice": "af_heart",
+        "duration_s": 1.85
+      }
+    },
+    "no_internet": {
+      "en": {
+        "text": "I can't reach the internet right now.",
+        "file": "en/no_internet.wav",
+        "voice": "af_heart",
+        "duration_s": 2.38
+      }
+    },
+    "connection_lost": {
+      "en": {
+        "text": "I lost my connection. Let me try again.",
+        "file": "en/connection_lost.wav",
+        "voice": "af_heart",
+        "duration_s": 3.08
+      }
+    },
+    "retrying": {
+      "en": {
+        "text": "Something went wrong. Retrying.",
+        "file": "en/retrying.wav",
+        "voice": "af_heart",
+        "duration_s": 2.42
+      }
+    },
+    "error_recoverable": {
+      "en": {
+        "text": "I ran into a problem. Give me a moment.",
+        "file": "en/error_recoverable.wav",
+        "voice": "af_heart",
+        "duration_s": 2.95
+      }
+    },
+    "error_fatal": {
+      "en": {
+        "text": "I couldn't recover from an error, and I have to shut down.",
+        "file": "en/error_fatal.wav",
+        "voice": "af_heart",
+        "duration_s": 3.7
+      }
+    },
+    "mic_problem": {
+      "en": {
+        "text": "I'm having trouble with my microphone.",
+        "file": "en/mic_problem.wav",
+        "voice": "af_heart",
+        "duration_s": 2.65
+      }
+    },
+    "going_standby": {
+      "en": {
+        "text": "Going on standby.",
+        "file": "en/going_standby.wav",
+        "voice": "af_heart",
+        "duration_s": 1.85
+      }
+    },
+    "session_ended": {
+      "en": {
+        "text": "Goodbye.",
+        "file": "en/session_ended.wav",
+        "voice": "af_heart",
+        "duration_s": 1.52
+      }
+    },
+    "shutting_down": {
+      "en": {
+        "text": "Shutting down. Goodbye.",
+        "file": "en/shutting_down.wav",
+        "voice": "af_heart",
+        "duration_s": 2.12
+      }
+    }
+  }
+}

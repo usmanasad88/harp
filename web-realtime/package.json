@@ -1,0 +1,14 @@
+{
+  "name": "laila-realtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Laila — a creative real-time voice console on the OpenAI Realtime API (WebRTC).",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=12"
+  }
+}

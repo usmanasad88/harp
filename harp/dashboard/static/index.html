@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>HARP Dashboard</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>HARP <span class="dim">dashboard</span></h1>
+    <div class="conn">
+      <span id="conn-dot" class="dot dot-off"></span>
+      <span id="conn-text">connecting…</span>
+      <span class="dim">·</span>
+      <span id="event-count">0</span> <span class="dim">events</span>
+      <span class="dim">·</span>
+      <span class="dim">last:</span> <span id="last-event-at">—</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="mute-bar">
+      <button id="mute-btn" class="mute-btn" disabled>mic — connecting…</button>
+    </section>
+
+    <section class="grid-3">
+      <div class="panel" id="panel-state">
+        <h2>State</h2>
+        <div class="panel-body" id="state-body">
+          <p class="empty">No state reported — orchestrator not running.</p>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-presence">
+        <h2>Presence &amp; identity</h2>
+        <div class="panel-body">
+          <div class="kv"><span>Presence</span><span id="presence-text" class="empty">—</span></div>
+          <div class="kv"><span>Person</span><span id="person-text" class="empty">—</span></div>
+          <div class="kv"><span>Gesture</span><span id="gesture-text" class="empty">—</span></div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-health">
+        <h2>Health</h2>
+        <div class="panel-body">
+          <div class="kv"><span>Heartbeat</span><span id="heartbeat-text" class="empty">no heartbeat received</span></div>
+          <div id="errors-list" class="list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="panel">
+        <h2>Camera</h2>
+        <div class="panel-body">
+          <p class="empty" id="camera-empty">Waiting for camera…</p>
+          <img id="camera-img" class="camera-img" alt="camera feed" hidden />
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Heard while idle <span class="dim">(wake listener)</span></h2>
+        <div class="panel-body scroll" id="heard-list">
+          <p class="empty">Nothing heard yet.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="panel">
+        <h2>Transcript</h2>
+        <div class="panel-body scroll" id="transcript">
+          <p class="empty">No conversation yet.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Tool calls</h2>
+        <div class="panel-body scroll" id="tools-list">
+          <p class="empty">No tool calls yet.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Raw event log</h2>
+      <div class="panel-body scroll" id="raw-log">
+        <p class="empty">Waiting for events…</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

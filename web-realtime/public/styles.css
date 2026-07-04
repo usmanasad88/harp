@@ -1,0 +1,367 @@
+/* Laila Realtime — deep-ocean bioluminescent console.
+   Palette is intentionally not a templated default: teal abyss + aqua glow +
+   a reserved warm coral for "you are speaking" and alerts. */
+
+:root {
+  --abyss: #04141c;
+  --deep: #072a3a;
+  --tide: #0e4a5e;
+  --aqua: #46e8d2;
+  --lumen: #7af0ff;
+  --coral: #ff7a6b;
+  --foam: #e8fbff;
+  --muted: #7fa6b0;
+
+  --glow-aqua: 0 0 40px rgba(70, 232, 210, 0.35);
+  --edge: rgba(122, 240, 255, 0.14);
+
+  --display: "Sora", system-ui, sans-serif;
+  --body: "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--body);
+  color: var(--foam);
+  background:
+    radial-gradient(120% 90% at 50% -10%, var(--tide) 0%, var(--deep) 38%, var(--abyss) 78%);
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  min-height: 100%;
+  overflow: hidden;
+  letter-spacing: 0.01em;
+}
+
+/* Slow drifting bioluminescent fog behind everything. */
+.ambient {
+  position: fixed;
+  inset: -25%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(28% 30% at 22% 30%, rgba(70, 232, 210, 0.10), transparent 70%),
+    radial-gradient(26% 28% at 80% 70%, rgba(122, 240, 255, 0.08), transparent 70%),
+    radial-gradient(20% 24% at 60% 18%, rgba(255, 122, 107, 0.05), transparent 70%);
+  filter: blur(6px);
+  animation: drift 26s ease-in-out infinite alternate;
+}
+@keyframes drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, 2%, 0) scale(1.08);
+  }
+}
+
+body > *:not(.ambient) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- Top bar ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 26px;
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 19px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.wordmark .tilde {
+  color: var(--aqua);
+  font-size: 22px;
+  text-shadow: var(--glow-aqua);
+}
+.wordmark .sub {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.chip {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 5px 11px;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+.status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 0 rgba(70, 232, 210, 0);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+/* Connection-state coloring driven by body[data-state]. */
+body[data-state="connecting"] .status .dot,
+body[data-state="reconnecting"] .status .dot {
+  background: var(--lumen);
+  animation: blink 1s steps(2, start) infinite;
+}
+body[data-state="live"] .status .dot {
+  background: var(--aqua);
+  box-shadow: 0 0 12px 2px rgba(70, 232, 210, 0.6);
+}
+body[data-state="error"] .status .dot {
+  background: var(--coral);
+  box-shadow: 0 0 12px 2px rgba(255, 122, 107, 0.5);
+}
+@keyframes blink {
+  to {
+    opacity: 0.25;
+  }
+}
+
+/* ---------- Stage / orb ---------- */
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  padding: 8px 20px;
+}
+
+.orb-wrap {
+  position: relative;
+  width: min(46vmin, 340px);
+  aspect-ratio: 1;
+}
+#orb {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.orb-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  padding: 0 18%;
+}
+
+/* ---------- Primary call button ---------- */
+.call {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--abyss);
+  background: linear-gradient(180deg, var(--lumen), var(--aqua));
+  border: none;
+  border-radius: 999px;
+  padding: 14px 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  box-shadow: var(--glow-aqua);
+  transition: transform 0.15s ease, box-shadow 0.3s ease, background 0.3s ease, opacity 0.2s;
+}
+.call:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 56px rgba(70, 232, 210, 0.5);
+}
+.call:active {
+  transform: translateY(1px) scale(0.99);
+}
+.call .call-icon {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--abyss);
+}
+
+/* When live, the button becomes a calm "End session" in coral. */
+body[data-state="live"] .call,
+body[data-state="reconnecting"] .call {
+  background: transparent;
+  color: var(--coral);
+  border: 1px solid rgba(255, 122, 107, 0.5);
+  box-shadow: none;
+}
+body[data-state="live"] .call .call-icon,
+body[data-state="reconnecting"] .call .call-icon {
+  background: var(--coral);
+  border-radius: 2px;
+}
+body[data-state="connecting"] .call {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+  text-align: center;
+  max-width: 32ch;
+}
+body[data-state="error"] .hint {
+  color: var(--coral);
+}
+
+/* ---------- Transcript ---------- */
+.transcript-panel {
+  width: min(720px, 92vw);
+  margin: 0 auto;
+  border: 1px solid var(--edge);
+  border-radius: 16px 16px 0 0;
+  background: rgba(4, 20, 28, 0.55);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+.transcript-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--edge);
+}
+.transcript {
+  max-height: 26vh;
+  min-height: 84px;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tide) transparent;
+}
+.line {
+  display: flex;
+  gap: 10px;
+  opacity: 0;
+  transform: translateY(4px);
+  animation: rise 0.25s ease forwards;
+}
+@keyframes rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.line .who {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding-top: 3px;
+  flex: 0 0 46px;
+}
+.line.you .who {
+  color: var(--coral);
+}
+.line.laila .who {
+  color: var(--aqua);
+}
+.line .text {
+  flex: 1;
+}
+.line.pending .text::after {
+  content: "▍";
+  color: var(--muted);
+  animation: blink 1s steps(2, start) infinite;
+}
+.line.system {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.ghost {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+.ghost:hover {
+  color: var(--foam);
+}
+
+/* ---------- Telemetry strip ---------- */
+.telemetry {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 22px;
+  padding: 10px 16px 16px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.telemetry i {
+  font-style: normal;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin-right: 6px;
+}
+.telemetry b {
+  font-weight: 500;
+  color: var(--foam);
+}
+
+@media (max-height: 720px) {
+  .orb-wrap {
+    width: min(34vmin, 240px);
+  }
+  .transcript {
+    max-height: 18vh;
+  }
+}

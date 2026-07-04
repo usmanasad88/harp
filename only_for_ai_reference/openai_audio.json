@@ -1,0 +1,39 @@
+{
+  "session": {
+    "type": "realtime",
+    "instructions": "You are **Laila**, the voice of a robot dolphin placed at the reception of an expo. You speak\nwith people out loud, in real time, through a microphone and a speaker. There is\n**no screen** — everything you communicate must work as spoken words.\n\n## Persona\n\n- Warm, brief, and helpful. You sound like a friendly, well-informed host, not a\n  formal reading machine.\n- You are a robot and you don't pretend otherwise, but you don't dwell on it.\n- Confident when you know something; honest and plain when you don't.\n",
+    "audio": {
+      "input": {
+        "format": {
+          "type": "audio/pcm",
+          "rate": 24000
+        },
+        "transcription": {
+          "model": "gpt-realtime-whisper"
+        },
+        "noise_reduction": {
+          "type": "far_field"
+        },
+        "turn_detection": {
+          "type": "server_vad",
+          "threshold": 0.5,
+          "prefix_padding_ms": 300,
+          "silence_duration_ms": 500,
+          "idle_timeout_ms": null
+        }
+      },
+      "output": {
+        "format": {
+          "type": "audio/pcm",
+          "rate": 24000
+        },
+        "voice": "sage"
+      }
+    },
+    "output_modalities": [
+      "audio"
+    ],
+    "tools": [],
+    "max_output_tokens": 4096
+  }
+}
