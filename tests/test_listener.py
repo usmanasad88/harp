@@ -7,8 +7,10 @@ we ask for, and phrase timing is derived from sample counts (deterministic).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import numpy as np
+import sounddevice as sd
 
 from harp.config import ListenerSettings
 from harp.core.bus import Bus
@@ -106,6 +108,37 @@ def test_match_wake_word_whole_words_only():
 def test_match_wake_word_multiword_and_nonlatin():
     assert match_wake_word("assalam o alaikum", ["assalam o alaikum"]) is not None
     assert match_wake_word("سلام، آپ کیسے ہیں؟", ["سلام"]) == "سلام"
+
+
+async def test_mic_open_failure_is_retried_not_fatal(monkeypatch):
+    """A mic that won't open (device busy / OS blocks access) must not take the
+    whole agent down — the listener warns and retries. Regression guard for the
+    PortAudioError-at-startup crash on Windows (Intel SST / blocked mic access)."""
+    bus = Bus()
+    opens = {"n": 0}
+
+    class BoomMic:
+        def __init__(self, rate):
+            opens["n"] += 1
+
+        async def __aenter__(self):
+            raise sd.PortAudioError("Unanticipated host error [MME error 1]")
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr("harp.listener.listener.Microphone", BoomMic)
+    monkeypatch.setattr("harp.listener.listener._MIC_RETRY_SECONDS", 0.01)
+    listener = AlwaysOnListener(bus, settings(), transcribe=lambda pcm, rate: "")
+
+    task = asyncio.create_task(listener.run())
+    await asyncio.sleep(0.05)  # long enough for a couple of retry cycles
+
+    assert not task.done()   # it did NOT propagate the error and exit
+    assert opens["n"] >= 2   # it kept retrying the mic
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
 
 
 async def test_transcribed_phrase_is_published_even_without_wake_word():

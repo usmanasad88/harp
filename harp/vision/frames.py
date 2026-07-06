@@ -4,11 +4,12 @@ The dashboard must stay decoupled from the vision layer, so it takes a plain
 `snapshot() -> bytes | None` callable (wired by app.py, the composition root)
 rather than a Camera. This module provides that callable's implementation.
 
-Overlays: services processing frames (gestures today; presence and face-ID
-later) contribute what they saw drawn over this view, as callables returning
-an `Overlay` — a label plus a box in normalized coordinates, so a provider
-never needs to know the snapshot frame's pixel size. The compositing happens
-here; app.py decides which providers are wired in.
+Overlays: services processing frames (gestures, face-ID) contribute what they
+saw drawn over this view, as callables returning `Overlay`(s) — each a label
+plus a box in normalized coordinates, so a provider never needs to know the
+snapshot frame's pixel size. A provider may return a single `Overlay`, `None`
+(nothing to draw), or a list of them (face-ID boxes everyone in frame). The
+compositing happens here; app.py decides which providers are wired in.
 """
 
 from __future__ import annotations
@@ -34,22 +35,32 @@ class Overlay:
     box: tuple[float, float, float, float]  # x1, y1, x2, y2
 
 
-OverlayFn = Callable[[], "Overlay | None"]
+OverlayFn = Callable[[], "Overlay | Iterable[Overlay] | None"]
+
+
+def _as_overlays(result: "Overlay | Iterable[Overlay] | None") -> Iterable[Overlay]:
+    """Normalize a provider's return to the overlays to draw: None → nothing,
+    a bare Overlay → just it, an iterable → each of them."""
+    if result is None:
+        return ()
+    if isinstance(result, Overlay):
+        return (result,)
+    return result
 
 
 def jpeg_snapshot(camera: Camera, overlays: Iterable[OverlayFn] = ()) -> bytes | None:
     """The freshest frame as JPEG bytes, or None if no frame has arrived yet.
 
-    Each overlay provider is asked what it currently sees; None means "nothing
-    right now" and draws nothing. Drawing happens on the copy `Camera.latest()`
+    Each overlay provider is asked what it currently sees; None (or an empty
+    list) means "nothing right now" and draws nothing, a single Overlay or a
+    list of them each get drawn. Drawing happens on the copy `Camera.latest()`
     returns, never the capture buffer itself.
     """
     frame = camera.latest()
     if frame is None:
         return None
     for provider in overlays:
-        overlay = provider()
-        if overlay is not None:
+        for overlay in _as_overlays(provider()):
             _draw(frame, overlay)
     ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_QUALITY])
     return buf.tobytes() if ok else None

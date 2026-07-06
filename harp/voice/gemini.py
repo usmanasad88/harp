@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
@@ -29,8 +30,43 @@ from .provider import (
     VoiceEvent,
 )
 
+logger = logging.getLogger(__name__)
+
 # Sentinel pushed onto the event queue when the receive loop ends.
 _DONE = object()
+
+
+def _activity_detection(config: SessionConfig):
+    """Map SessionConfig's VAD knobs onto Gemini automatic activity detection.
+
+    Best-effort and guarded: the exact types move around across google-genai
+    versions, so if they're absent we return None and Gemini keeps its defaults.
+    Gemini has no direct noise-reduction knob, so `noise_reduction` isn't applied
+    here (it's an OpenAI lever) — the loudness gate is the provider-agnostic one."""
+    if config.vad_threshold is None and config.vad_silence_ms is None:
+        return None
+    try:
+        kwargs: dict[str, Any] = {}
+        if config.vad_silence_ms is not None:
+            kwargs["silence_duration_ms"] = int(config.vad_silence_ms)
+        if config.vad_threshold is not None:
+            # Higher threshold ⇒ commit fewer turns ⇒ LOW sensitivity.
+            low = config.vad_threshold >= 0.6
+            kwargs["start_of_speech_sensitivity"] = (
+                types.StartSensitivity.START_SENSITIVITY_LOW
+                if low
+                else types.StartSensitivity.START_SENSITIVITY_HIGH
+            )
+            kwargs["end_of_speech_sensitivity"] = (
+                types.EndSensitivity.END_SENSITIVITY_LOW
+                if low
+                else types.EndSensitivity.END_SENSITIVITY_HIGH
+            )
+        aad = types.AutomaticActivityDetection(**kwargs)
+        return types.RealtimeInputConfig(automatic_activity_detection=aad)
+    except (AttributeError, TypeError, ValueError) as exc:
+        logger.debug("gemini VAD tuning unavailable in this google-genai: %s", exc)
+        return None
 
 
 def _build_live_config(config: SessionConfig) -> types.LiveConnectConfig:
@@ -49,6 +85,7 @@ def _build_live_config(config: SessionConfig) -> types.LiveConnectConfig:
         # Ask for text of both sides so we can print/log/show what was said.
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
+        realtime_input_config=_activity_detection(config),
         tools=config.tools or None,
     )
 

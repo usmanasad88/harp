@@ -1,8 +1,9 @@
-"""FaceID's slow loop does three independently-testable things: pick the most
-prominent face out of a frame, publish PersonIdentified only when who-is-in-
-frame changes (unknowns reported, never stored), and record an overlay for the
-dashboard camera view. Real InsightFace detection and the real memory matcher
-are both faked here — this tests the orchestration, not the model."""
+"""FaceID's slow loop does three independently-testable things: detect every
+face in a frame (largest = the primary), publish PersonIdentified only when
+who-is-in-frame changes (unknowns reported, never stored), and record a per-
+face overlay for the dashboard camera view. Real InsightFace detection and the
+real memory matcher are both faked here — this tests the orchestration, not the
+model."""
 
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import pytest
 
 import harp.vision.face_id as face_id_module
 from harp.core.bus import Bus
-from harp.core.events import PersonIdentified
+from harp.core.events import PersonIdentified, PresenceChanged
 from harp.vision.face_id import UNKNOWN_ID, FaceID
 
 
@@ -219,11 +220,11 @@ async def test_overlay_reflects_sighting_then_goes_stale(monkeypatch):
 
     await fid.process_frame(_FRAME, now=100.0)
 
-    overlay = fid.overlay(now=100.5)
-    assert overlay is not None
-    assert overlay.label == "Ada 0.90"
-    assert overlay.box == pytest.approx((0.1, 0.1, 0.5, 0.6))
-    assert fid.overlay(now=100.0 + 60.0) is None  # stale: loop stopped, not the face
+    overlays = fid.overlays(now=100.5)
+    assert len(overlays) == 1
+    assert overlays[0].label == "Ada 0.90"
+    assert overlays[0].box == pytest.approx((0.1, 0.1, 0.5, 0.6))
+    assert fid.overlays(now=100.0 + 60.0) == []  # stale: loop stopped, not the face
 
 
 async def test_overlay_clears_when_face_leaves(monkeypatch):
@@ -236,7 +237,91 @@ async def test_overlay_clears_when_face_leaves(monkeypatch):
 
     fake.faces = [_face(bbox=(0, 0, 10, 10))]
     await fid.process_frame(_FRAME, now=0.0)
-    assert fid.overlay(now=0.1) is not None
+    assert fid.overlays(now=0.1) != []
     fake.faces = []
     await fid.process_frame(_FRAME, now=1.5)
-    assert fid.overlay(now=1.6) is None
+    assert fid.overlays(now=1.6) == []
+
+
+async def test_presence_published_on_appear_count_change_and_leave(monkeypatch):
+    # Face-ID doubles as the presence signal (for the end-rules): it announces
+    # a change in "is anyone here, and how many", not every pass.
+    bus = Bus()
+    stream = bus.subscribe(PresenceChanged)
+    fid = FaceID(bus, _FakeCamera(), _FakeStore())
+    fake = _FakeFaceAnalysis.instances[0]
+    monkeypatch.setattr(face_id_module.matcher, "match", lambda embedding, store: (None, False, 0.0))
+
+    fake.faces = [_face(bbox=(0, 0, 10, 10))]  # one person appears
+    await fid.process_frame(_FRAME, now=0.0)
+    fake.faces = [_face(bbox=(0, 0, 10, 10)), _face(bbox=(0, 0, 20, 20))]  # a second joins
+    await fid.process_frame(_FRAME, now=1.5)
+    fake.faces = []  # both leave
+    await fid.process_frame(_FRAME, now=3.0)
+    await fid.process_frame(_FRAME, now=4.5)  # still empty — no fresh event
+
+    assert (await _next(stream)) == PresenceChanged(present=True, count=1)
+    assert (await _next(stream)) == PresenceChanged(present=True, count=2)
+    assert (await _next(stream)) == PresenceChanged(present=False, count=0)
+    with pytest.raises(asyncio.TimeoutError):
+        await _next(stream, timeout=0.05)  # unchanged presence stays quiet
+
+
+async def test_multiple_faces_all_identified_and_overlaid(monkeypatch):
+    bus = Bus()
+    stream = bus.subscribe(PersonIdentified)
+    store = _FakeStore()
+    store.people["p1"] = SimpleNamespace(name="Ada")
+    store.people["p2"] = SimpleNamespace(name="Grace")
+    fid = FaceID(bus, _FakeCamera(), store)
+    # Two people in one frame; Grace's face is larger, so she is the primary.
+    ada = _face(bbox=(0, 0, 10, 10), embedding=np.full(512, 1.0, dtype=np.float32))
+    grace = _face(bbox=(0, 0, 100, 100), embedding=np.full(512, 2.0, dtype=np.float32))
+    _FakeFaceAnalysis.instances[0].faces = [ada, grace]
+
+    def match(embedding, store):
+        return ("p2", True, 0.8) if embedding[0] == 2.0 else ("p1", True, 0.9)
+
+    monkeypatch.setattr(face_id_module.matcher, "match", match)
+
+    primary = await fid.process_frame(_FRAME, now=0.0)
+
+    # The largest face (Grace) is the primary/current identity.
+    assert primary.person_id == "p2"
+    assert fid.current.person_id == "p2"
+    # Both people are published, largest first.
+    assert (await _next(stream)).person_id == "p2"
+    assert (await _next(stream)).person_id == "p1"
+    # And both get a labelled box for the dashboard camera view.
+    assert {o.label for o in fid.overlays(now=0.1)} == {"Grace 0.80", "Ada 0.90"}
+
+
+async def test_only_newcomers_publish_when_someone_joins(monkeypatch):
+    bus = Bus()
+    stream = bus.subscribe(PersonIdentified)
+    store = _FakeStore()
+    store.people["p1"] = SimpleNamespace(name="Ada")
+    store.people["p2"] = SimpleNamespace(name="Grace")
+    fid = FaceID(bus, _FakeCamera(), store)
+    fake = _FakeFaceAnalysis.instances[0]
+    # Ada's face is the larger one throughout, so she stays the primary.
+    ada = _face(bbox=(0, 0, 100, 100), embedding=np.full(512, 1.0, dtype=np.float32))
+    grace = _face(bbox=(0, 0, 10, 10), embedding=np.full(512, 2.0, dtype=np.float32))
+
+    def match(embedding, store):
+        return ("p2", True, 0.8) if embedding[0] == 2.0 else ("p1", True, 0.9)
+
+    monkeypatch.setattr(face_id_module.matcher, "match", match)
+
+    fake.faces = [ada]  # Ada alone
+    assert (await fid.process_frame(_FRAME, now=0.0)).person_id == "p1"
+    fake.faces = [ada, grace]  # Grace joins; Ada is still there and still primary
+    result = await fid.process_frame(_FRAME, now=1.5)
+
+    # Primary (Ada) didn't change → returns None, but Grace (the newcomer) is
+    # published; Ada is NOT re-published just because someone joined.
+    assert result is None
+    assert (await _next(stream)).person_id == "p1"  # from the first pass
+    assert (await _next(stream)).person_id == "p2"  # Grace, the newcomer
+    with pytest.raises(asyncio.TimeoutError):
+        await _next(stream, timeout=0.05)

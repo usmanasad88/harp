@@ -20,6 +20,7 @@ import base64
 import contextlib
 import json
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
@@ -40,37 +41,75 @@ from .provider import (
 
 _DONE = object()
 
+# HARP is English/Urdu only, and we want the transcript in the Latin alphabet:
+# English as-is, and spoken Urdu ROMANIZED (e.g. "aap kaise hain") rather than in
+# Perso-Arabic — readable on the dashboard and consistent with the romanized wake
+# words in harp.yaml. We steer script with a prompt rather than pinning
+# `language`, which would mis-transcribe the other language whenever the user
+# switches. See _still_prompt_prefix below for the price of priming a
+# Whisper-family model this way.
+_DEFAULT_TRANSCRIBE_PROMPT = (
+    "The speaker uses only English or Urdu. Write the whole transcript in the "
+    "Latin alphabet: leave English as English, and romanize spoken Urdu into "
+    'Latin letters (e.g. "aap kaise hain") — never Urdu (Perso-Arabic), Arabic, '
+    "or Hindi/Devanagari script."
+)
+
+
+def _transcribe_prompt() -> str:
+    return os.getenv("OPENAI_TRANSCRIBE_PROMPT", _DEFAULT_TRANSCRIBE_PROMPT)
+
+
+def _norm(text: str) -> str:
+    """Lowercase, drop punctuation, collapse whitespace — for prefix comparison."""
+    return " ".join(re.sub(r"[^\w\s]", " ", text).lower().split())
+
+
+def _still_prompt_prefix(text: str, prompt: str) -> bool:
+    """True while `text` could still be the opening of the transcription prompt.
+
+    Whisper-family transcribers (gpt-4o-mini-transcribe here) regurgitate their
+    priming prompt verbatim when handed silence / a breath / background noise
+    that the server VAD still commits as a turn — it would otherwise reach the
+    dashboard as though the visitor said it. Such an echo reproduces the prompt
+    from its start, so while a user transcript is still a prefix of the prompt we
+    withhold it; the moment it diverges (real speech does so within a word or
+    two) we know it's genuine and stream it. Compared on normalized text so a
+    delta that splits a word mid-token ("...only Eng") still reads as a prefix.
+    """
+    t = _norm(text)
+    return not t or _norm(prompt).startswith(t)
+
 
 def _build_session(config: SessionConfig) -> dict:
     """The GA 'realtime' session config, mirroring web-realtime/server.js."""
+    audio_input = {
+        "format": {"type": "audio/pcm", "rate": config.input_rate},
+        "transcription": {
+            "model": os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe"),
+            "prompt": _transcribe_prompt(),
+        },
+        "turn_detection": {
+            "type": "server_vad",
+            # SessionConfig can raise these (the two-agent filter does, so room
+            # noise doesn't commit a turn); None keeps the sandbox-proven defaults.
+            "threshold": config.vad_threshold if config.vad_threshold is not None else 0.5,
+            "prefix_padding_ms": 300,
+            "silence_duration_ms": (
+                config.vad_silence_ms if config.vad_silence_ms is not None else 500
+            ),
+        },
+    }
+    if config.noise_reduction:
+        # OpenAI's own input noise reduction; near_field for a close mic, far_field
+        # for a distant one. Omitted (no key) = off, the default.
+        audio_input["noise_reduction"] = {"type": config.noise_reduction}
     session = {
         "type": "realtime",
         "instructions": config.system_instruction,
         "output_modalities": ["audio"],
         "audio": {
-            "input": {
-                "format": {"type": "audio/pcm", "rate": config.input_rate},
-                "transcription": {
-                    "model": os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe"),
-                    # HARP is English/Urdu only. Left to itself, the transcriber
-                    # renders spoken Urdu as Hindi/Devanagari (the two are nearly
-                    # identical in speech). We steer the script with a prompt
-                    # rather than pinning `language`, which would mis-transcribe
-                    # the other language whenever the user switches.
-                    "prompt": os.getenv(
-                        "OPENAI_TRANSCRIBE_PROMPT",
-                        "The speaker uses only English or Urdu. Transcribe Urdu in the "
-                        "Urdu (Perso-Arabic) script — never Hindi or Devanagari. Leave "
-                        "English speech in English.",
-                    ),
-                },
-                "turn_detection": {
-                    "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 500,
-                },
-            },
+            "input": audio_input,
             "output": {
                 "format": {"type": "audio/pcm", "rate": config.output_rate},
                 "voice": config.voice,
@@ -91,6 +130,9 @@ class OpenAIConnection:
         self._conn = conn
         self._config = config
         self._events: asyncio.Queue = asyncio.Queue()
+        self._prompt = _transcribe_prompt()  # withhold echoes of it (see _still_prompt_prefix)
+        self._user_held = ""  # user-transcript text held back while it still looks like the prompt
+        self._user_streaming = False  # once True this turn is genuine speech — stream it directly
         self._recv_task = asyncio.create_task(self._receive())
 
     # --- sending -------------------------------------------------------------
@@ -131,6 +173,32 @@ class OpenAIConnection:
                 return
             yield ev
 
+    def _on_user_delta(self, delta: str) -> None:
+        """Stream a user-transcript delta, but hold it back while the turn so far
+        still looks like the transcription prompt echoed on silence/noise."""
+        if self._user_streaming:
+            if delta:
+                self._events.put_nowait(UserTranscript(delta))
+            return
+        self._user_held += delta
+        if not _still_prompt_prefix(self._user_held, self._prompt):
+            # Diverged from the prompt -> genuine speech. Release what we held
+            # and stream the rest of this turn directly.
+            if self._user_held:
+                self._events.put_nowait(UserTranscript(self._user_held))
+            self._user_held = ""
+            self._user_streaming = True
+
+    def _finish_user_turn(self) -> None:
+        streamed = self._user_streaming
+        self._user_held = ""
+        self._user_streaming = False
+        if streamed:
+            # Text already streamed via deltas; this just closes the turn.
+            self._events.put_nowait(UserTranscript("", final=True))
+        # else: nothing was streamed — an empty turn, or the transcriber echoing
+        # its own priming prompt on silence/noise. Drop it; it never happened.
+
     async def _receive(self) -> None:
         try:
             async for event in self._conn:
@@ -144,9 +212,9 @@ class OpenAIConnection:
                     # this just tells consumers the agent's turn is closed.
                     self._events.put_nowait(AgentTranscript("", final=True))
                 elif t == "conversation.item.input_audio_transcription.delta":
-                    self._events.put_nowait(UserTranscript(event.delta))
+                    self._on_user_delta(event.delta or "")
                 elif t == "conversation.item.input_audio_transcription.completed":
-                    self._events.put_nowait(UserTranscript("", final=True))
+                    self._finish_user_turn()
                 elif t == "input_audio_buffer.speech_started":
                     self._events.put_nowait(Interrupted())
                 elif t == "response.function_call_arguments.done":

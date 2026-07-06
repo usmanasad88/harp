@@ -51,6 +51,19 @@ Picture how it behaves through a day:
     up** ("Did you find what you were looking for?").
   These are the *kind* of rules we want, not the exact set — the trigger
   conditions and cool-downs are to be designed so HARP is helpful, not pushy.
+- **It can run push-to-talk in noisy places.** Real-time voice is fragile in
+  loud environments (an expo hall): background noise causes false wakes and
+  bleeds into the model's turn-taking. A **push-to-talk mode** gives an on-demand
+  clean conversation — pressing a key **while idle opens a session** whose
+  **microphone is live only while the key is held**. It's *per-session* and runs
+  alongside the hands-free wakes: only a press-started session is gated, and when
+  it ends HARP returns to normal listening. The mic is gated inside the voice
+  bridge (cross-platform, not OS-level). Implemented as a keyboard hotkey
+  (harp.yaml `push_to_talk:`); a dashboard hold-button or physical switch could
+  drive the same gate later.
+- **It knows when a conversation is over — including on request.** Beyond the
+  automatic end rules (below), the live agent has an **`end_session` tool** so it
+  can hang up itself when the visitor says goodbye or asks it to stop.
 - **It can look things up.** It **retrieves from the local `data/` folder** and,
   when needed, can fall back to **internet search**.
 
@@ -149,6 +162,29 @@ its patterns when building HARP's real voice core:
   end-of-interaction is judged, and how memories are stored and matched. **To be
   worked out through brainstorming, not assumed.** (Speech-based wake is now
   settled: the always-on listener in `harp/listener/`, tuned via `harp.yaml`.)
+- **Noise robustness for the expo (to consider, not yet built).** The Realtime
+  model is *native audio* — the input transcriber is only a side-channel for the
+  dashboard, so noise hurts via the audio, not the transcript. Ranked levers,
+  best combined: (1) a **volume/proximity gate** in the bridge — reuse
+  `_mic_payload`'s silence-substitution + `rms_level`, send silence below a
+  calibrated `near_field_level` so only clear close-mic speech commits a turn
+  (automatic push-to-talk keyed on loudness; needs pre-roll + hangover so word
+  onsets aren't clipped); (2) OpenAI **near-field noise reduction** in the
+  session config (near-free); (3) raise `server_vad.threshold` (~0.7–0.8) and/or
+  lengthen `silence_duration_ms`, or try `semantic_vad` for incomplete sentences;
+  (4) a **persona line** to ignore background/fragmentary speech (complement only
+  — with auto-response every committed turn still replies). Push-to-talk stays
+  the guaranteed fallback. Start with (2)+(3) (no calibration), then (1) behind a
+  `harp.yaml` knob defaulted off. The `near_field_level` threshold is a live
+  calibration against the real mic/room.
+- **Two-agent filter (built 2026-07-06, opt-in, `filter_agent.enabled`,
+  default off).** A heavier, LLM-based lever complementing the above: a first
+  realtime agent hears the room, discards noise / background / speech not meant
+  for HARP, and relays only the intended message (as text) to the responder,
+  which never hears raw room audio. Text relay, half-duplex (no barge-in). Costs
+  a second live session + ~1-2 s latency, so it's a knob, not the default; the
+  cheaper levers and push-to-talk remain first-line. See DEVLOG 2026-07-06;
+  `harp/voice/two_agent.py`.
 
 ## Build phases
 

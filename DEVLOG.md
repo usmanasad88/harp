@@ -60,14 +60,28 @@ chunk, and keep "Current state" below accurate. Keep it short and factual.
 
 **Working (implemented and runnable):**
 
-- **Real-time voice core.** `python -m harp [--provider gemini|openai]` — talk
-  into the mic, HARP answers through the speakers. Bilingual EN/Urdu.
+- **Entry point:** `python -m harp` now runs the **full supervised agent** (see
+  app.py below) — same as `python -m harp.app`. `python -m harp --voice-only`
+  runs just the bare voice core described next.
+- **Real-time voice core — now with data retrieval.** `python -m harp
+  --voice-only [--provider gemini|openai]` — talk into the mic, HARP answers
+  through the speakers, grounded in `data/` via `search_knowledge`. Bilingual
+  EN/Urdu.
   - Provider abstraction: [harp/voice/provider.py](harp/voice/provider.py) — one
     interface (`SessionConfig`, normalized `VoiceEvent`s, `VoiceConnection`).
   - Backends: [harp/voice/gemini.py](harp/voice/gemini.py) and
     [harp/voice/openai.py](harp/voice/openai.py).
   - Runner + audio I/O: [harp/voice/session.py](harp/voice/session.py),
-    [harp/voice/audio_io.py](harp/voice/audio_io.py).
+    [harp/voice/audio_io.py](harp/voice/audio_io.py). The runner now takes an
+    injected `tool_dispatch` and returns a tool's result to the model with
+    `respond_tool` (before, tool calls were only printed) — so the bare
+    `python -m harp` path retrieves from `data/` exactly like harp.app, just
+    without the bus/dashboard. [__main__.py](harp/__main__.py) is the
+    composition root that attaches `knowledge_tools.declarations(...)` to the
+    config and wires `knowledge_tools.dispatch`; it prints the indexed-chunk
+    count at startup. Provider/mic/speaker are injectable (same shape as the
+    bridge), so the runner is unit-tested with fakes
+    ([tests/test_session.py](tests/test_session.py), 4).
   - Config/persona: [harp/config.py](harp/config.py); persona in
     [prompts/system_instructions.md](prompts/system_instructions.md).
 - **Model/voice are shared with the sandbox** via `.env` (`REALTIME_MODEL` /
@@ -108,8 +122,10 @@ chunk, and keep "Current state" below accurate. Keep it short and factual.
   while HARP is idle (releases it whenever the app leaves STANDBY). Two wake
   rules, both tuned in `harp.yaml`: loudness ≥ `wake_level` wakes immediately;
   sound ≥ `transcribe_level` captures a phrase, transcribes it locally
-  (faster-whisper, lazy-loaded; model downloads on first use), and wakes if a
-  configured wake word is in it. Publishes `WakeRequested(reason, context)`
+  (faster-whisper, lazy-loaded; **offline-first** — once cached it loads with
+  `local_files_only=True` so a flaky network can't stall the load, downloading
+  only on a genuine cache miss), and wakes if a configured wake word is in it.
+  Publishes `WakeRequested(reason, context)`
   where `context` is model-facing text (e.g. the transcript) the orchestrator
   passes to the live session at open. Calibrate levels with the live meter:
   `uv run python -m harp.listener`. Detector logic is pure and unit-tested
@@ -119,15 +135,31 @@ chunk, and keep "Current state" below accurate. Keep it short and factual.
   [harp/config.py](harp/config.py); missing file/keys fall back to defaults,
   typo'd keys warn instead of crash ([tests/test_config.py](tests/test_config.py)).
   Secrets stay in `.env`.
-- **Status voice audio assets.** `assets/status_voice/en/*.wav` — 14 canned
-  status lines (boot, connectivity, error narration, sleep/wake, shutdown)
-  rendered offline with Kokoro TTS (voice `af_heart`, 24 kHz mono PCM), plus
-  `assets/status_voice/manifest.json` mapping stable line ids → text/file/
-  duration, keyed id → lang so Urdu can be added later. Generated ONCE by
-  [scripts/generate_status_voice.py](scripts/generate_status_voice.py) — note
-  it must run under the separate Kokoro venv:
-  `/home/mani/Repos/Latex/.venv-tts/bin/python scripts/generate_status_voice.py`.
-  Playback (`status_voice.play()`) is NOT wired yet — that's the remaining half.
+- **Status voice — canned lines play at boot / errors / standby / shutdown.**
+  [orchestrator/status_voice.py](harp/orchestrator/status_voice.py)
+  (`StatusVoice`) resolves a stable id → clip via
+  `assets/status_voice/manifest.json` and plays it (serialized, one clip at a
+  time; every failure — missing clip, broken manifest, no audio device — is a
+  logged no-op, never a crash). The orchestrator narrates at each transition
+  (injected, so tests run silent): boot → `starting_up`, then a real
+  connectivity probe (`_internet_reachable` in app.py, TCP to 8.8.8.8:53
+  off-thread) → `connection_established` / `no_internet`; normal session end →
+  `going_standby`; error → `mic_problem`/`connection_lost`/`error_recoverable`
+  by `where`, fatal → `error_fatal`; shutdown → `shutting_down`. Toggle in
+  harp.yaml (`status_voice.enabled`/`lang`). Clips are the same 14 Kokoro
+  (`af_heart`, 24 kHz mono PCM) lines the manifest describes. Tests:
+  [tests/test_status_voice.py](tests/test_status_voice.py) (7, fake sink) +6
+  orchestrator narration cases.
+  - **⚠ CLIPS ARE NOT IN THE REPO YET.** `.gitignore`'s blanket `*.wav` had
+    silently excluded them, so only `manifest.json` was ever committed — the
+    Kokoro-rendered WAVs lived only on the old Linux machine and are absent from
+    this checkout. `.gitignore` now has an exception
+    (`!assets/status_voice/**/*.wav`) so clips get tracked once present. Until
+    the `assets/status_voice/en/*.wav` files (matching the manifest ids) are
+    dropped in, status voice stays SILENT (the no-op path) — everything else
+    runs normally. Regenerate with
+    [scripts/generate_status_voice.py](scripts/generate_status_voice.py) (needs
+    a Kokoro venv) or copy the clips over, then `git add` them.
 - **Orchestrator skeleton.** [harp/orchestrator/orchestrator.py](harp/orchestrator/orchestrator.py)
   + [retry.py](harp/orchestrator/retry.py), tested
   ([tests/test_orchestrator.py](tests/test_orchestrator.py),
@@ -146,17 +178,18 @@ chunk, and keep "Current state" below accurate. Keep it short and factual.
   - `camera.py` — single shared `cv2.VideoCapture`, capture on a background
     thread (`.read()` blocks; keeps the event loop free), `latest()`/`stop()`,
     reconnects on device drop-out. Verified against a real Logitech C310.
-  - `face_id.py` — InsightFace (`buffalo_l`, CPU) detects + embeds faces,
-    picks the most prominent one by bbox area, matches against memory/store
-    via memory/matcher. Now a **continuous slow loop** (`run()`, ~1 pass /
-    1.5 s, detection off-thread) that publishes `PersonIdentified` only when
-    who-is-in-frame *changes* (appears / different person / came back after
-    absence) — not every pass. **Unknown faces are report-only**
-    (`person_id="unknown"`, never stored — decision from the 2026-07-02
-    memory log entry). Exposes `current` (latest identification, None when
-    nobody's there) for the voice bridge's identity line, and `overlay()`
-    (name + similarity + face box) for the dashboard camera view, same
-    pattern as gestures. Wired into app.py.
+  - `face_id.py` — InsightFace (`buffalo_l`, CPU) detects + embeds **every**
+    face in frame, matching each against memory/store via memory/matcher. A
+    **continuous slow loop** (`run()`, ~1 pass / 1.5 s, detection off-thread)
+    that publishes a `PersonIdentified` per person as who-is-in-frame *changes*
+    (a newcomer appears / comes back after absence) — quiet for people already
+    there. **Unknown faces are report-only** (`person_id="unknown"`, never
+    stored — decision from the 2026-07-02 memory log entry). Also **doubles as
+    presence**: publishes `PresenceChanged(present, count)` on change, which the
+    end-rules consume. Exposes `current` (the most prominent face, None when
+    nobody's there) for the voice bridge's identity line + presence seeding, and
+    `overlays()` (a name + similarity + box per face) for the dashboard camera
+    view. Wired into app.py.
   - `gestures.py` — a raised **Open_Palm**, held then released, is the
     proactive greeting cue (`GestureDetected(kind="wave")`) — this is the
     `GestureRecognizer(bus, camera).run()` app.py already wires in. Went
@@ -221,20 +254,49 @@ chunk, and keep "Current state" below accurate. Keep it short and factual.
   a fresh connection gets the current state once via an injected
   `get_mic_muted` (the bus itself never replays history). Not unit-tested
   this round (explicit call at the time: verify live instead).
+- **Push-to-talk (on-demand, per-session).** [interaction/push_to_talk.py](harp/interaction/push_to_talk.py)
+  — with `push_to_talk.enabled: true` in harp.yaml, a talk key (default space) is
+  armed *alongside* the hands-free listener/wave. Pressing it **while idle** opens
+  a session whose mic is gated (`mic_open` — real audio only while held, silence
+  otherwise), so a loud room can't interfere; the gate clears when the session
+  ends and HARP returns to hands-free. Gating lives in the voice bridge
+  (`mic_gate`), so it's cross-platform. Keyboard via pynput (injected, tested
+  without a display). Tests: [tests/test_push_to_talk.py](tests/test_push_to_talk.py).
+- **Two-agent noise/intent filter (experimental, opt-in — off by default).**
+  With `filter_agent.enabled: true` in harp.yaml, a first realtime agent
+  ([voice/filter_agent.py](harp/voice/filter_agent.py)) hears the room and relays
+  only the intended message (as text) to the normal responder (today's
+  [bridge.py](harp/voice/bridge.py) in a new mic-less text-driven mode), wired by
+  [voice/two_agent.py](harp/voice/two_agent.py) which exposes the same
+  `run(context)` interface so the orchestrator is unchanged. Text relay,
+  half-duplex (no barge-in). Implemented + unit-tested, **not yet verified live**
+  (needs a mic + API keys). See the 2026-07-06 log entry.
+- **Agent can end its own session.** [interaction/session_tools.py](harp/interaction/session_tools.py)
+  declares an `end_session` tool; the model calls it when the visitor says
+  goodbye, and it closes the session via `EndOfInteractionDetected` (the same
+  path as the face-absence rule). Tests:
+  [tests/test_session_tools.py](tests/test_session_tools.py).
+- **Wave → wake + auto-end.** A wave opens a session
+  ([triggers/engine.py](harp/triggers/engine.py): `GestureDetected(kind="wave")`
+  → `WakeRequested`), and a session ends on its own when the person walks off
+  ([interaction/end_rules.py](harp/interaction/end_rules.py): no face for
+  `interaction.absence_timeout_seconds`, default 10, → `EndOfInteractionDetected`).
+  The end-rule seeds presence at each open from `face_id.current` (the bus
+  won't replay the last `PresenceChanged`), so a session woken with nobody in
+  frame still closes. Tested: [tests/test_triggers.py](tests/test_triggers.py),
+  [tests/test_end_rules.py](tests/test_end_rules.py).
 - **app.py — the full supervised agent.** `uv run python -m harp.app
   [--provider gemini|openai]` wires ONE shared `Bus` into everything built so
   far — orchestrator + VoiceBridge (with the search_knowledge tool and the
   face-ID identity line composed here, in the composition root), wake
   listener (if `listener.enabled` in harp.yaml), camera + gesture recognizer
-  + face-ID slow loop, dashboard at http://127.0.0.1:8787 — and runs them
-  concurrently. A missing/busy webcam logs a warning and disables the
-  camera-fed subsystems for that run instead of blocking the voice side.
-  First task to exit wins: orchestrator reaching STOPPING is a clean
-  shutdown; any other task finishing means a subsystem crashed and the crash
-  is re-raised. **A wake now opens a real conversation.** Remaining caveat:
-  nothing *ends* one automatically yet (interaction/end_rules is still a
-  stub) — a session stays open until the provider closes it, an error closes
-  it, or Ctrl+C.
+  + face-ID slow loop, the wave→wake trigger engine, the interaction end-rules,
+  dashboard at http://127.0.0.1:8787 — and runs them concurrently. A
+  missing/busy webcam logs a warning and disables the camera-fed subsystems for
+  that run instead of blocking the voice side. First task to exit wins:
+  orchestrator reaching STOPPING is a clean shutdown; any other task finishing
+  means a subsystem crashed and the crash is re-raised. **A wake opens a real
+  conversation and the person leaving ends it** — end to end.
 
 **Scaffolded only (skeletons — import cleanly, but raise `NotImplementedError`):**
 
@@ -245,12 +307,14 @@ functional yet, except where noted.
 - **core/** — the spine everything else depends on: `bus.py` (async pub/sub,
   ✅ **implemented + unit-tested**, see [tests/test_bus.py](tests/test_bus.py)),
   `events.py` (the shared event vocabulary), `state.py` (the app state machine).
-- **orchestrator/** — `orchestrator.py` + `retry.py` are ✅ implemented (see
-  above), including running the voice bridge; `watchdog` and `status_voice`
-  are still stubs.
-- **presence/** — webcam "is anyone here" → sleep/wake.
-- **vision/** — `camera.py`, `face_id.py`, and `gestures.py` are all ✅
-  implemented and wired (see above).
+- **orchestrator/** — `orchestrator.py` + `retry.py` + `status_voice.py` are
+  ✅ implemented (see above), including running the voice bridge and canned
+  status narration; only `watchdog` is still a stub.
+- **presence/** — `detector.py` stays an unused stub: face-ID (`vision/face_id.py`)
+  now publishes `PresenceChanged`, so a separate webcam presence detector isn't
+  needed. Kept only as the seam for a future non-camera presence source.
+- **vision/** — `camera.py`, `face_id.py` (multi-face + presence), and
+  `gestures.py` are all ✅ implemented and wired (see above).
 - **knowledge/** — `retriever` + `tools` are ✅ implemented (BM25 port of the
   sandbox, see above); `indexer` (future vector store) and `web_search`
   (internet fallback) are still stubs.
@@ -259,8 +323,10 @@ functional yet, except where noted.
   [scripts/enroll_people.py](scripts/enroll_people.py) over `people/` — see
   the log entry); `logger` and `summarizer` are still stubs (the voice bridge
   now exists, so these are unblocked).
-- **interaction/** — `end_rules` (when a conversation is over).
-- **triggers/** — proactive `engine` (wave / follow-up).
+- **interaction/** — `end_rules` (face-absence auto-close) and `push_to_talk`
+  (hold-key-to-talk mode for noisy rooms) are both ✅ implemented (see above).
+- **triggers/** — `engine` is ✅ implemented for the wave→wake rule; richer
+  rules (known-person-with-open-follow-up → re-engage) can join later.
 
 **Reference only (not the product, don't build on directly):**
 
@@ -270,27 +336,390 @@ functional yet, except where noted.
 
 ## Suggested next steps
 
-1. **Live verification (user):** run `uv run python -m harp.app --provider
-   openai`, wake it (wake word / loud sound / wave), and check: a real
-   conversation happens; the transcript + tool calls appear on the dashboard;
-   asking an expo question triggers `search_knowledge`; standing in frame as
-   an enrolled person shows the name on the camera overlay and the model
-   greets you by name at session open. Also worth confirming with
-   `--provider gemini`.
-2. **End-of-interaction rules** (`interaction/end_rules`) — now the biggest
-   gap: sessions only end via provider close / error / Ctrl+C. PLAN's sketch:
-   left frame + silent for a while (needs presence, or a first version from
-   transcript silence alone).
-3. `status_voice` playback (`play(line_id)` over the generated
-   `assets/status_voice/` clips + manifest) + `watchdog` complete PLAN phase 2.
-4. Then PLAN.md's remaining phase order: presence/sleep-wake → web-search
-   fallback → memory's remaining half (`logger` + `summarizer`, now unblocked
-   by the voice bridge) → proactive triggers. Build each subsystem so it runs
-   and is testable **on its own** before wiring it into `app.py`.
+1. **Live verification (user):** run `uv run python -m harp --provider openai`
+   and check: a wake word / loud sound / **wave** each open a conversation; the
+   transcript + tool calls appear on the dashboard; an expo question triggers
+   `search_knowledge`; an enrolled person is named on the camera overlay and
+   greeted at open; **two+ people are each boxed**; and **walking out of frame
+   closes the session after ~10 s** (harp.yaml `interaction.absence_timeout_seconds`).
+   Also worth a pass with `--provider gemini`. **Push-to-talk (now on by default
+   in harp.yaml):** *hold space while idle* to start a gated session — confirm
+   the model hears you only while the key is down, background noise no longer
+   wakes/interrupts *that session*, and when it ends (walk away, or say goodbye)
+   HARP goes back to hands-free. **And the end_session tool:** tell the agent to
+   close / say goodbye and confirm it hangs up (ACTIVE → STANDBY). Two known
+   refinements if live testing shows them: a manual turn-commit on key-up (if the
+   model is slow to reply after release — it relies on provider VAD for now), and
+   a graceful drain before `end_session` tears down (if the spoken goodbye clips).
+2. **Drop the status-voice clips in.** `status_voice` playback is now wired
+   (see current state), but the `assets/status_voice/en/*.wav` files aren't in
+   this checkout — put them there (matching the manifest ids) and `git add` them
+   (`.gitignore` now allows it) so HARP actually speaks. `watchdog` is the last
+   piece of PLAN phase 2.
+3. Then PLAN.md's remaining order — in progress this cycle: memory's remaining
+   half (`logger` + `summarizer`; the latter Gemini-based with a free-tier quota
+   fallback), plus a dev event logger + dashboard "delete logs" button. After
+   that: web-search fallback, richer proactive triggers (known-person
+   follow-ups), and a silence-based end rule (a natural companion to the
+   face-absence rule now in place).
+   Build each subsystem so it runs and is testable **on its own** before wiring
+   it into `app.py`.
 
 ---
 
 ## Log
+
+### 2026-07-06 — Filter tuning knobs (loudness gate + VAD) + live dashboard sliders + debug
+
+Follow-up to the two-agent filter after first live testing: with `filter_agent`
+on, the filter relayed hallucinated greetings ("Hi, iPhone also.", "Peace be.")
+on silence. Root cause: the filter is a native-audio realtime model, and those
+invent plausible speech from ambient/near-silence when their VAD commits a turn —
+the two-agent split inherits the single-agent noise problem; it only helps if the
+filter reliably ignores noise. Addressed on three fronts.
+
+- **Debuggability + two clear bugs** ([filter_agent.py](harp/voice/filter_agent.py),
+  [two_agent.py](harp/voice/two_agent.py), [prompts/filter_instructions.md](prompts/filter_instructions.md)):
+  the filter now logs, at INFO, both `filter heard (asr): …` (input transcription)
+  and its raw output (relay vs. `[[ignore]]`), so a bogus turn is traceable to the
+  audio it committed vs. the model inventing one. Stopped priming the filter with
+  the responder's wake context ("someone said hello — greet them"), which was
+  teaching it to emit greetings on silence — the filter now gets NO wake context.
+  Hardened the persona with an explicit anti-hallucination directive.
+- **(1) Loudness/proximity gate** (`LoudnessGate` in filter_agent.py): only mic
+  audio at/above a live RMS threshold reaches the filter; quieter room noise
+  becomes digital silence, so it never commits a turn. Pre-roll (no clipped
+  onsets) + hangover (no chopped words). Same RMS formula as
+  `listener.detector.rms_level`, so it calibrates against `python -m harp.listener`.
+  Provider-agnostic; read per chunk so dashboard changes are instant. 0 = off.
+- **(2) Filter-session VAD/noise** threaded through the provider abstraction:
+  `SessionConfig` gained `vad_threshold` / `vad_silence_ms` / `noise_reduction`;
+  [openai.py](harp/voice/openai.py) maps them onto server-VAD + input
+  noise-reduction; [gemini.py](harp/voice/gemini.py) maps threshold→start/end
+  sensitivity + silence (guarded/best-effort — google-genai types vary; noise
+  reduction is OpenAI-only). Applied at the next session open.
+- **Config + live tuning** ([config.py](harp/config.py)): `FilterAgentSettings`
+  gained the four knobs (defaults in [harp.yaml](harp.yaml)); new mutable
+  `FilterTuning` (validates + clamps every value in `apply`) is shared by the
+  bridge and dashboard. `build_filter_config(provider, tuning)` stamps the VAD
+  knobs onto each new filter session.
+- **Dashboard knobs** ([dashboard/server.py](harp/dashboard/server.py) + static):
+  a "Filter tuning" panel with sliders (loudness gate, VAD threshold, VAD silence)
+  + a noise-reduction select. Confirmation-based like the mute button: a change
+  sends `SetFilterTuning`, the server validates via `FilterTuning.apply` and
+  broadcasts `FilterTuningChanged` (new event) so every tab syncs; a fresh tab is
+  seeded once. Panel is hidden unless two-agent mode is on (server only wires the
+  callables then). The loudness gate is instant; VAD/noise apply next conversation.
+- **Also this session:** the listener now **retries on mic-open failure instead of
+  crashing the whole agent** ([listener.py](harp/listener/listener.py)) — a Windows
+  PortAudioError at startup (Intel Smart Sound mic array + blocked OS mic access)
+  had taken the whole app down. Diagnosed as an OS-level mic-access block (every
+  device failed to open on every host API, even at native rate); the mics here also
+  reject a 16 kHz open (native 44.1/48 kHz) — a native-rate-and-resample fix in
+  audio_io is the next audio robustness step, still to do.
+- Tests: loudness gate (5), gate wired into the mic pump, `build_filter_config`
+  → OpenAI VAD mapping (2), `FilterTuning` validate/clamp (2), `FilterAgentSettings`
+  config, dashboard `SetFilterTuning` apply+broadcast + bad-input→error (2),
+  listener mic-retry (1). **Full suite: 178 pass.** NOT yet verified live — the
+  knobs need calibration against the real mic/room (that's the tuning loop the
+  dashboard exists for).
+
+### 2026-07-06 — Status voice wired (boot / connectivity / standby / error / shutdown)
+
+Completed the remaining half of PLAN phase 2's orchestrator: HARP now speaks
+canned status lines at every transition, so a live run is legible by ear (you
+HEAR boot, connectivity, session-end, errors) instead of being silent about its
+own state. This was step 1 of the user's ordered plan (status voice → interaction
+logger → Gemini memory).
+
+- **`StatusVoice` player** ([orchestrator/status_voice.py](harp/orchestrator/status_voice.py)):
+  loads `assets/status_voice/manifest.json` once, resolves a stable id (+lang,
+  falling back to `en`) → clip path, and plays it. Playback is **serialized** (an
+  asyncio lock — two quick transitions never talk over each other) and
+  **fail-safe by design**: an unknown id, a missing file, a broken manifest, or a
+  machine with no audio device is always a logged no-op, never an exception that
+  could take the supervisor down. The audio backend is injected (`sink`), so it's
+  unit-tested without a sound card; the default sink lazily imports
+  sounddevice/numpy and plays via `sd.play`/`sd.wait`.
+- **Orchestrator narration** ([orchestrator.py](harp/orchestrator/orchestrator.py)):
+  `StatusVoice` and a connectivity probe are **injected** (both optional → the
+  orchestrator behaves exactly as before when absent, which every existing
+  bus-driven test relies on; no new bus events). Mapping: boot → `starting_up`,
+  then (probe) `connection_established`/`no_internet`; normal end → `going_standby`;
+  non-fatal error → `_error_line(where)` (`mic_problem` / `connection_lost` /
+  `error_recoverable`); fatal → `error_fatal`; shutdown → `shutting_down`. The
+  error/shutdown paths close the session with `narrate=False` so they don't
+  double-announce a standby cue over their own line.
+- **Real connectivity probe** ([app.py](harp/app.py) `_internet_reachable`): a TCP
+  connect to `8.8.8.8:53` (real reachability — DNS+routing+handshake, not "is a
+  cable in"), run off-thread by the orchestrator so a dead network never stalls
+  the loop. Only wired when narration is on (its sole consumer is that boot line).
+- **Config/wiring:** new `StatusVoiceSettings(enabled, lang)` in
+  [config.py](harp/config.py) + a `status_voice:` block in
+  [harp.yaml](harp.yaml); app.py builds the player (or None) and injects it.
+- Tests: [tests/test_status_voice.py](tests/test_status_voice.py) (7: id→clip
+  resolution, unknown-id/missing-file/missing-manifest/dead-sink no-ops, lang
+  fallback, non-overlap) + 6 orchestrator narration cases in
+  [tests/test_orchestrator.py](tests/test_orchestrator.py). **Full suite: 165 pass.**
+- **⚠ The clips themselves aren't in the repo yet — status voice is SILENT until
+  they're added.** `.gitignore` had a blanket `*.wav` that silently excluded the
+  Kokoro-rendered clips; only `manifest.json` was ever committed, and the WAVs
+  lived only on the old Linux machine. Added a `.gitignore` exception
+  (`!assets/status_voice/**/*.wav`) and verified a dropped-in clip now shows as
+  tracked (`??`), while stray recordings under `audio/` stay ignored. **Action:
+  drop the 14 `assets/status_voice/en/*.wav` files in (user is providing them) and
+  `git add` — then it speaks.** Everything else runs normally meanwhile (the
+  no-op path). Not verified live here (no clips + non-interactive shell); the
+  wiring/resolution is verified against the real manifest and the full suite.
+
+### 2026-07-06 — Two-agent noise/intent filter (experimental, opt-in)
+
+Tackling the user's biggest real-world problem — noise and misread intent in a
+loud hall — with a **two realtime-agent** pipeline in front of the responder.
+Design decisions taken with the user: **text relay** (not audio) and
+**half-duplex** (no barge-in). All of it is **opt-in behind a flag**
+(`filter_agent.enabled` in harp.yaml, default **false**); with the flag off the
+single-agent `VoiceBridge` runs exactly as before, which is why the whole
+existing suite is untouched.
+
+- **Shape.** `mic ─audio─▶ FilterAgent ─clean text─▶ VoiceBridge(responder) ─▶
+  speaker`. Only the filter holds a microphone; the responder is **mic-less** and
+  gets "silence, then a clean message", so it can never hear the room or itself.
+- **Agent 1 — the filter** ([harp/voice/filter_agent.py](harp/voice/filter_agent.py)).
+  Native audio in; it relays ONLY what the visitor means to say to HARP and drops
+  background chatter / crowd noise / the assistant's own voice. Persona in
+  [prompts/filter_instructions.md](prompts/filter_instructions.md): output the
+  intended message, or the sentinel `[[ignore]]` for anything else. We read its
+  **transcript** (`AgentTranscript`) as the relayed text — so **no provider
+  change was needed**; the model's thrown-away audio-out is the prototype's cost
+  (a text-output modality is the obvious later latency/cost optimization).
+  `clean_relay` strips the sentinel and any punctuation-only remainder so
+  `[[ignore]].` can't leak a fake turn. Feedback comes in as `CONTEXT:` notes the
+  persona absorbs, so short follow-ups ("yes", "how much") stay interpretable.
+  The half-duplex mic gate reuses the bridge's silence-substitution trick.
+- **Agent 2 — the responder** = today's [bridge.py](harp/voice/bridge.py),
+  gaining an optional **text-driven, mic-less mode** (`text_inbox`): when a queue
+  is given it opens no mic and forwards each relayed message with `send_text`.
+  Tools, RAG, `end_session`, transcripts, speaker, barge-in-clear are all
+  unchanged. `run()` was refactored onto an `AsyncExitStack` so the mic is only
+  opened in mic mode (existing mic-mode tests still pass verbatim).
+- **Coordinator** ([harp/voice/two_agent.py](harp/voice/two_agent.py),
+  `TwoAgentBridge`) exposes the **same `run(context)` interface** as VoiceBridge,
+  so the orchestrator and app.py drive it interchangeably — app.py just builds
+  this instead of a plain bridge when the flag is on. Two wires: a relay becomes
+  a bus `UserSaid` (so the dashboard shows the filtered user turn) **and** goes to
+  the responder's inbox; the responder's finished reply is fed back to the filter
+  as context. Half-duplex: the filter's mic is muted while the responder is
+  speaking (tracked from `AgentSaid` deltas) plus a `response_tail_seconds` tail,
+  with a 12 s safety cap so a dropped reply can't mute the mic forever. Any
+  external push-to-talk gate is AND-ed in.
+- **Config** ([config.py](harp/config.py)): `FilterAgentSettings`
+  (`enabled`/`provider`/`response_tail_seconds`), `build_filter_config` (responder
+  defaults + filter persona + no tools), `load_filter_persona`, `IGNORE_SENTINEL`.
+  New `filter_agent:` block in [harp.yaml](harp.yaml).
+- Tests: [tests/test_filter_agent.py](tests/test_filter_agent.py) (8),
+  [tests/test_two_agent.py](tests/test_two_agent.py) (4), +1 text-driven-mode case
+  in [tests/test_bridge.py](tests/test_bridge.py). **Full suite: 151 pass.**
+  **NOT verified live** — needs API keys + a real mic (ideally a loud room). Known
+  costs to confirm live: a second live session, ~1–2 s extra latency, and no
+  barge-in. Turn it on with `filter_agent.enabled: true` and watch the dashboard:
+  the transcript should show only *intended* user turns, background chatter
+  dropped. Push-to-talk stays the guaranteed fallback.
+
+### 2026-07-05 — Urdu transcribed in Latin script + the transcription-prompt leak
+
+Two linked fixes to how spoken Urdu is turned into text.
+
+- **The transcription prompt was leaking into the transcript.** During live
+  testing the dashboard showed the *user* saying the transcriber's own priming
+  sentence ("The speaker uses only English or Urdu. Transcribe Urdu in the …
+  script …"). Cause: the OpenAI Realtime input transcriber
+  (`gpt-4o-mini-transcribe`) is primed with a `prompt` to steer script, and
+  Whisper-family models **regurgitate that prompt verbatim** when the server VAD
+  commits a turn of silence / a breath / crowd noise. That echo flowed out as
+  `UserTranscript` → `UserSaid` → the dashboard. [openai.py](harp/voice/openai.py)
+  now withholds a user transcript **only while it's still a prefix of the prompt**
+  and streams it the instant it diverges (genuine speech diverges within a word
+  or two, so there's no added lag); a turn that never diverges is dropped. Guard
+  is pure/normalized so a delta splitting a word mid-token still reads as a
+  prefix. Tests: [tests/test_transcript_echo.py](tests/test_transcript_echo.py) (4).
+- **Urdu is now transcribed in Latin (Roman) script, not Perso-Arabic.** The
+  wake words in [harp.yaml](harp.yaml) are already romanized (`salam`, `assalam`,
+  `laila`), so Perso-Arabic output could never match them — Latin is what the
+  matcher expects, and it's easier to read on the dashboard. Flipped both
+  transcribers: the OpenAI prompt now says "romanize spoken Urdu into Latin
+  letters" (overridable via `OPENAI_TRANSCRIBE_PROMPT`), and the local wake-word
+  Whisper ([transcriber.py](harp/listener/transcriber.py)) gained a romanized
+  `initial_prompt` bias (overridable via `HARP_WHISPER_PROMPT`, holds no wake
+  word so an echo can't false-wake). Raw Whisper romanization via `initial_prompt`
+  is only a nudge — **needs a live check** that spoken Urdu actually comes out in
+  Latin.
+- Full suite: 139 pass. The OpenAI echo path is unit-tested; the romanized-Urdu
+  output (both providers) is the user's live verification.
+
+### 2026-07-05 — Push-to-talk (per-session, on-demand) + agent-driven end_session
+
+Addressed the biggest real-world blocker for the expo deployment: an always-on
+realtime model in a loud hall false-wakes on crowd noise and has its turn-taking
+wrecked by background speech. Added an **on-demand hold-to-talk session** and
+gave the model a way to hang up on itself.
+
+- **Push-to-talk is a per-session mode, not a global switch.**
+  [harp/interaction/push_to_talk.py](harp/interaction/push_to_talk.py)
+  (`PushToTalk`) runs **alongside** the always-on listener — HARP still wakes
+  hands-free. Pressing the talk key **while idle (STANDBY)** publishes
+  `WakeRequested(reason="button")` AND marks that session push-to-talk; for its
+  duration the mic is gated. A session woken hands-free (wave / wake word) is
+  never gated. It tracks `StateChanged` to know when it's idle and to clear the
+  gate on return to STANDBY, so **when the session ends (face-absence, the
+  agent's own end_session, or an error) push-to-talk goes inactive and the
+  listener/wave resume automatically.** Exposes `mic_open` = `(not this-is-a-PTT-
+  session) or key-held`, the gate the bridge consults. Keyboard backend is
+  **pynput** (global listener on its own thread), injected via `listener_factory`
+  so the class is pynput-agnostic and unit-tested by driving `press()`/`release()`
+  (no display, no keypresses); pynput is imported lazily so importing the module
+  never needs it; a listener that can't start logs + disables PTT instead of
+  crashing.
+- **Mic gating lives in the voice bridge, not the OS** (cross-platform, unlike
+  the Linux-only `pactl` mic-mute). [bridge.py](harp/voice/bridge.py) gained an
+  injected `mic_gate: () -> bool`; `_pump_mic` sends `_mic_payload(pcm)` — real
+  mic audio when the gate is open (or when ungated, the default), else **same-
+  length digital silence**. Silence rather than nothing keeps the stream
+  continuous so the provider's own VAD still sees the trailing quiet and ends
+  the turn — with no room noise ever reaching it.
+- **The model can end its own session.** New
+  [harp/interaction/session_tools.py](harp/interaction/session_tools.py)
+  declares an `end_session` tool (per-provider, same shape as
+  knowledge/tools.py); calling it publishes `EndOfInteractionDetected` — the
+  exact event the face-absence end rule uses — so the orchestrator closes the
+  session (ACTIVE → STANDBY, InteractionEnded) through the existing path. The
+  model calls it when the visitor says goodbye / asks to stop. app.py composes
+  the tool declarations (`knowledge + session`) and a `dispatch` that routes
+  `end_session` to the bus and everything else to knowledge retrieval.
+- **Wiring** ([app.py](harp/app.py)): the listener and PTT now both run (no
+  longer mutually exclusive); `mic_gate=lambda: ptt.mic_open`. New
+  `PushToTalkSettings(enabled=False, key="space")` in [config.py](harp/config.py);
+  the repo [harp.yaml](harp.yaml) sets `enabled: true` (arms the key — HARP still
+  boots hands-free). PLAN.md's vision list gained the mode.
+- Tests: [tests/test_push_to_talk.py](tests/test_push_to_talk.py) (7: press-while-
+  idle wakes+gates, session-end returns to hands-free, hands-free sessions
+  ungated, press-before-standby doesn't wake, auto-repeat wakes once, cancel
+  stops the listener, failing listener disables PTT),
+  [tests/test_session_tools.py](tests/test_session_tools.py) (3), +2 mic-gate
+  cases in [tests/test_bridge.py](tests/test_bridge.py), +1 config case. **Full
+  suite: 135 pass.** NOT yet run to a live conversation here (needs a mic + API
+  key + real keypresses / a spoken "goodbye") — that's the user's check:
+  `uv run python -m harp`, hold space + talk, and try telling it to close.
+- Dep added: `pynput`. Known refinement (as with the mic-gate's reliance on
+  provider VAD): `end_session` tears down immediately, which can clip a trailing
+  spoken "goodbye" — a graceful drain (finish the current turn first) is a later
+  polish; the tool description tells the model to say goodbye *before* calling it.
+
+### 2026-07-05 — Multi-face, face-ID presence, auto-end, wave→wake, whisper offline-load
+
+Closed the "a wake opens a conversation but nothing ends one" gap and made the
+vision + wake paths actually work end to end.
+
+- **Face-ID now sees everyone, and doubles as presence.**
+  [face_id.py](harp/vision/face_id.py) identifies *every* face per pass (not
+  just the largest): publishes a `PersonIdentified` per newcomer (quiet for
+  people already in frame), keeps `current` = the most prominent face for the
+  voice bridge's "who am I talking to" line, and draws one labelled box per
+  face. It also publishes `PresenceChanged(present, count)` on change, so
+  face-ID *is* the presence signal — no separate detector needed. The overlay
+  seam ([frames.py](harp/vision/frames.py)) now accepts a list of boxes per
+  provider (a single `Overlay`/`None` still works).
+- **Auto-end rule implemented.** [interaction/end_rules.py](harp/interaction/end_rules.py):
+  no face for `absence_timeout` seconds (harp.yaml `interaction.absence_timeout_seconds`,
+  default 10) during an ACTIVE session → `EndOfInteractionDetected` →
+  orchestrator closes ACTIVE→STANDBY. A returning face resets the countdown, so
+  brief detection dropouts don't cut people off.
+  - **Bug found + fixed (the session that wouldn't close):** the bus doesn't
+    replay, and face-ID only publishes presence on *change*, so a session woken
+    with nobody in frame (voice/loud-sound wake, or a poor camera angle) never
+    got an "absent" event — the monitor kept its optimistic "present" default
+    and never armed. It now seeds presence at `InteractionStarted` from an
+    injected `is_present` getter (wired to `face_id.current`), the same way the
+    dashboard seeds mic-mute state on a fresh connection.
+- **Wave → wake wired.** [triggers/engine.py](harp/triggers/engine.py) turns a
+  wave (`GestureDetected(kind="wave")`) into a `WakeRequested`, so a wave opens
+  a session (the startup banner already promised it). The orchestrator still
+  only honors wakes while STANDBY, and the gesture recognizer already debounces,
+  so the engine is a thin translation.
+- **Whisper "stuck on transcribing…" debugged — not a download.** The model was
+  fully cached; faster-whisper/huggingface_hub re-validates the cached files
+  with a network HEAD request on *every* load, which stalled on a flaky
+  connection. [transcriber.py](harp/listener/transcriber.py) now loads
+  offline-first (`local_files_only=True`), downloading only on a genuine cache
+  miss — first-phrase load dropped to <1 s. (The earlier "nothing on the wake
+  transcriber" was simply the one-time model download not finishing before
+  Ctrl+C.)
+- **People:** registered [people/usman-asad/](people/usman-asad/) (developer;
+  4 photos enrolled) and fixed a Windows cp1252 `UnicodeEncodeError` in
+  [scripts/enroll_people.py](scripts/enroll_people.py) (a `→` in the summary
+  print crashed *after* saving).
+- Wiring: `end_rules` + `triggers` added to app.py runners; new `interaction:`
+  section in [harp.yaml](harp.yaml). Tests added (`test_end_rules`,
+  `test_triggers`, `test_transcriber`, multi-face + presence cases in
+  `test_face_id`, interaction config). **Full suite: 122 pass.**
+
+### 2026-07-05 — `python -m harp` is now the full agent (unified entry point)
+
+- **`uv run python -m harp` launches the full supervised agent by default** —
+  orchestrator + real voice session (VoiceBridge + search_knowledge) + always-on
+  wake listener (threshold-based session start from `harp.yaml`) + camera /
+  gestures / face-ID + dashboard, all on one bus. Previously this entry point
+  ran only the *bare* voice core and the full stack lived behind
+  `python -m harp.app`; the user wanted their known entry point to "incorporate
+  it all," so [__main__.py](harp/__main__.py) now delegates to
+  `harp.app.run_app` (the composition root, unchanged). `python -m harp.app`
+  still works and runs the same thing.
+- **The bare voice core is preserved behind `--voice-only`**
+  (`python -m harp --voice-only [--provider ...]`) — mic + speaker +
+  search_knowledge, no bus/orchestrator/dashboard/vision — for a fast check of
+  the provider/audio path. `run_app` is imported *inside* that branch's negative
+  path (not at module top) so `--voice-only` stays a lightweight fallback that
+  doesn't import or depend on the heavy vision stack (cv2/insightface/mediapipe).
+- Verified on this (Windows) machine: 105 tests still pass; `python -m harp`
+  boots through the full stack (config → camera → face-ID → gesture model
+  download → dashboard/orchestrator). NOT yet run to a live conversation here
+  (needs a wake + API key round-trip) — that's the user's check.
+- **Windows caveat surfaced:** [audio_control.py](harp/audio_control.py) is
+  `pactl`-based (Linux/PulseAudio), so the dashboard's **mic-mute button won't
+  work on Windows** — but both call sites catch the failure (→ `ErrorRaised`),
+  so it's non-fatal; the rest of the agent runs. A cross-platform mute is a
+  good next step (see below).
+
+### 2026-07-05 — Data retrieval in the bare `python -m harp` runner
+
+- The bare voice core (`python -m harp` → [harp/voice/session.py](harp/voice/session.py))
+  advertised no tools and only *printed* ToolCalls to stderr — so the model
+  could never actually look anything up. It now retrieves from `data/` like
+  the web-realtime sandbox and harp.app do: the runner gained an injected
+  `tool_dispatch`, runs the requested tool on a ToolCall, and returns the
+  result via `respond_tool` (a missing handler or a failing tool degrades into
+  an `{"error": ...}` the model apologizes for, never a dead session — same
+  contract as the bridge). [harp/__main__.py](harp/__main__.py) is the
+  composition root: it sets `cfg.tools = knowledge_tools.declarations(provider)`
+  and passes `knowledge_tools.dispatch`, keeping session.py provider- and
+  corpus-agnostic. New `knowledge_tools.index_size()` warms the index and feeds
+  a startup line (`43 chunks indexed from data/`).
+- Restructured `run()` off `asyncio.TaskGroup`: the mic now runs as a side task
+  that's cancelled when the provider closes its event stream, so `run()` returns
+  on stream-end instead of both tasks blocking forever. Also made the
+  provider/mic/speaker injectable (same shape as the bridge) so the runner is
+  testable without hardware.
+- Tests: [tests/test_session.py](tests/test_session.py) (4 — tool round-trip,
+  tool failure → error payload, no-dispatcher still closes the call, run()
+  returns on stream-end). 105 pass repo-wide. Verified the wiring live-ish
+  without a mic/key: 43 chunks index from the real `data/`, and
+  `dispatch("search_knowledge", {"query": "venue location"})` returns the
+  Venue chunks. NOT yet verified with a real mic + API key end to end — that's
+  the user's check (`uv run python -m harp`, ask an expo question, watch for the
+  `[tool search_knowledge(...) -> N result(s)]` line on stderr).
+- Note: `python -m harp` stays the *bare* voice core (no orchestrator, bus, or
+  dashboard) by design — this only closes the retrieval gap; harp.app remains
+  the full supervised agent.
 
 ### 2026-07-05 — Face-ID wired + voice bridge: the supervised agent talks
 

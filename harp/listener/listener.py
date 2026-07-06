@@ -18,6 +18,8 @@ import asyncio
 import logging
 from typing import Callable
 
+import sounddevice as sd
+
 from ..config import ListenerSettings
 from ..core.bus import Bus
 from ..core.events import PhraseHeard, StateChanged, WakeRequested
@@ -30,6 +32,12 @@ logger = logging.getLogger(__name__)
 # After requesting a wake, ignore the mic briefly so we don't fire twice before
 # the orchestrator reacts (its StateChanged will pause us properly).
 _COOLDOWN_SECONDS = 2.0
+
+# The mic can be temporarily unavailable — another app holds it, the OS is
+# blocking microphone access, a USB device dropped out. When that happens we
+# retry rather than take the whole agent down (PLAN: "narrates its own problems
+# and retries"). Backoff between attempts.
+_MIC_RETRY_SECONDS = 5.0
 
 
 class AlwaysOnListener:
@@ -59,11 +67,25 @@ class AlwaysOnListener:
                 if not self._listening:
                     await asyncio.sleep(0.2)
                     continue
-                async with Microphone(self._rate) as mic:
-                    async for chunk in mic.chunks():
-                        if not self._listening:
-                            break  # release the device for the live session
-                        await self._handle(self._detector.feed(chunk))
+                try:
+                    async with Microphone(self._rate) as mic:
+                        async for chunk in mic.chunks():
+                            if not self._listening:
+                                break  # release the device for the live session
+                            await self._handle(self._detector.feed(chunk))
+                except (sd.PortAudioError, OSError) as exc:
+                    # The mic wouldn't open (or dropped out mid-listen). Don't let
+                    # it kill the whole agent — warn and retry; it recovers on its
+                    # own once the device frees up / access is restored. (Common
+                    # on Windows: OS microphone-access privacy blocking desktop
+                    # apps, or another app holding the device.)
+                    logger.warning(
+                        "listener mic unavailable (%s) — is another app using it, "
+                        "or is OS microphone access blocked for desktop apps? "
+                        "retrying in %.0fs",
+                        exc, _MIC_RETRY_SECONDS,
+                    )
+                    await asyncio.sleep(_MIC_RETRY_SECONDS)
         finally:
             state_task.cancel()
 

@@ -26,7 +26,7 @@ from harp.core.events import (
 )
 from harp.core.state import AppState
 from harp.orchestrator import retry
-from harp.orchestrator.orchestrator import Orchestrator
+from harp.orchestrator.orchestrator import Orchestrator, _error_line
 
 
 async def next_event(stream, timeout: float = 1.0):
@@ -342,3 +342,119 @@ async def test_shutdown_cancels_a_running_bridge(bus):
     assert (await next_event(states)).new == "stopping"
     await asyncio.wait_for(task, 1.0)
     assert bridge.cancelled
+
+
+# --- status narration (injected StatusVoice; a fake records what it played) ----
+
+
+class FakeStatusVoice:
+    """Records the canned lines the orchestrator asked to play, in order."""
+
+    def __init__(self) -> None:
+        self.played: list[str] = []
+
+    async def play(self, line_id: str, lang: str | None = None) -> None:
+        self.played.append(line_id)
+
+
+def start_with_status(
+    bus: Bus, status: FakeStatusVoice, *, connectivity_check=None
+) -> tuple[Orchestrator, asyncio.Task]:
+    orch = Orchestrator(
+        bus, "gemini", status_voice=status, connectivity_check=connectivity_check
+    )
+    return orch, asyncio.create_task(orch.run())
+
+
+def test_error_line_maps_where_to_clip():
+    assert _error_line("voice.session") == "connection_lost"
+    assert _error_line("dashboard.mic_mute") == "mic_problem"
+    assert _error_line("something else") == "error_recoverable"
+
+
+async def test_boot_narrates_starting_then_connection_established(bus):
+    status = FakeStatusVoice()
+    states = bus.subscribe(StateChanged)
+    _, task = start_with_status(bus, status, connectivity_check=lambda: True)
+    try:
+        await next_event(states)  # → standby (boot finished)
+        assert status.played == ["starting_up", "connection_established"]
+    finally:
+        await cancel(task)
+
+
+async def test_boot_narrates_no_internet_when_unreachable(bus):
+    status = FakeStatusVoice()
+    states = bus.subscribe(StateChanged)
+    _, task = start_with_status(bus, status, connectivity_check=lambda: False)
+    try:
+        await next_event(states)  # → standby
+        assert status.played == ["starting_up", "no_internet"]
+    finally:
+        await cancel(task)
+
+
+async def test_normal_end_says_going_standby(bus):
+    status = FakeStatusVoice()
+    states = bus.subscribe(StateChanged)
+    _, task = start_with_status(bus, status)
+    try:
+        await next_event(states)  # → standby
+        await bus.publish(WakeRequested(reason="speech"))
+        await next_event(states)  # → active
+        await bus.publish(EndOfInteractionDetected(reason="left frame"))
+        await next_event(states)  # → standby
+        await asyncio.sleep(0.05)  # let the post-transition narration run
+        assert "going_standby" in status.played
+    finally:
+        await cancel(task)
+
+
+async def test_error_close_suppresses_standby_and_narrates_problem(bus, monkeypatch):
+    monkeypatch.setattr(
+        "harp.orchestrator.orchestrator.backoff_seconds", lambda attempt: 0
+    )
+    status = FakeStatusVoice()
+    states = bus.subscribe(StateChanged)
+    _, task = start_with_status(bus, status)
+    try:
+        await next_event(states)  # → standby
+        await bus.publish(WakeRequested(reason="speech"))
+        await next_event(states)  # → active
+        await bus.publish(ErrorRaised(where="voice", message="boom"))
+        await next_event(states)  # → standby (session closed)
+        await next_event(states)  # → error
+        await next_event(states)  # → standby (recovered)
+        await asyncio.sleep(0.05)
+        # The error close must NOT double-narrate a normal standby cue; it says
+        # the problem line instead (where="voice" → connection_lost).
+        assert "going_standby" not in status.played
+        assert "connection_lost" in status.played
+    finally:
+        await cancel(task)
+
+
+async def test_fatal_error_narrates_error_fatal(bus):
+    status = FakeStatusVoice()
+    states = bus.subscribe(StateChanged)
+    _, task = start_with_status(bus, status)
+    await next_event(states)  # → standby
+    await bus.publish(ErrorRaised(where="core", message="dead", fatal=True))
+    await next_event(states)  # → stopping
+    await asyncio.wait_for(task, 1.0)
+    assert "error_fatal" in status.played
+
+
+async def test_shutdown_narrates_shutting_down_without_standby(bus):
+    status = FakeStatusVoice()
+    states = bus.subscribe(StateChanged)
+    _, task = start_with_status(bus, status)
+    await next_event(states)  # → standby
+    await bus.publish(WakeRequested(reason="speech"))
+    await next_event(states)  # → active
+    await bus.publish(ShutdownRequested(reason="ctrl-c"))
+    await next_event(states)  # → standby (graceful close, no going_standby cue)
+    await next_event(states)  # → stopping
+    await asyncio.wait_for(task, 1.0)
+    assert "shutting_down" in status.played
+    assert "going_standby" not in status.played

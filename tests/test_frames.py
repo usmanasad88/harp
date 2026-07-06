@@ -50,3 +50,29 @@ def test_none_overlay_draws_nothing():
     plain = jpeg_snapshot(FakeCamera(_frame()))
     untouched = jpeg_snapshot(FakeCamera(_frame()), overlays=(lambda: None,))
     assert untouched == plain
+
+
+def test_list_of_overlays_all_drawn():
+    # A provider (face-ID) may return several boxes at once — one per face.
+    plain = jpeg_snapshot(FakeCamera(_frame()))
+    one = jpeg_snapshot(
+        FakeCamera(_frame()),
+        overlays=(lambda: [Overlay(label="a", box=(0.1, 0.1, 0.3, 0.3))],),
+    )
+    two = jpeg_snapshot(
+        FakeCamera(_frame()),
+        overlays=(
+            lambda: [
+                Overlay(label="a", box=(0.1, 0.1, 0.3, 0.3)),
+                Overlay(label="b", box=(0.5, 0.5, 0.8, 0.8)),
+            ],
+        ),
+    )
+    assert one != plain  # the single box in the list was drawn
+    assert two != one  # the second box changes the image further
+
+
+def test_empty_overlay_list_draws_nothing():
+    plain = jpeg_snapshot(FakeCamera(_frame()))
+    untouched = jpeg_snapshot(FakeCamera(_frame()), overlays=(lambda: [],))
+    assert untouched == plain

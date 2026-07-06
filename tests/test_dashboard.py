@@ -109,3 +109,58 @@ async def test_camera_route_404_when_no_snapshot_attached(running_server):
     with pytest.raises(urllib.error.HTTPError) as exc_info:
         await loop.run_in_executor(None, _get, f"http://127.0.0.1:{port}/camera.jpg")
     assert exc_info.value.code == 404
+
+
+async def _recv_type(client, wanted, timeout=1.0):
+    """Read messages until one of `wanted` type arrives (skip seeding/others)."""
+    loop = asyncio.get_running_loop()
+    end = loop.time() + timeout
+    while loop.time() < end:
+        msg = json.loads(await asyncio.wait_for(client.recv(), timeout=timeout))
+        if msg["type"] == wanted:
+            return msg
+    raise AssertionError(f"no {wanted} received")
+
+
+async def test_set_filter_tuning_applies_and_broadcasts():
+    from harp.config import FilterTuning
+
+    bus = Bus()
+    tuning = FilterTuning()
+    async with _build_server(
+        bus, "127.0.0.1", 0,
+        set_filter_tuning=tuning.apply,
+        get_filter_tuning=tuning.snapshot,
+    ) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            # A fresh connection is seeded with the current tuning once.
+            seed = await _recv_type(client, "FilterTuningChanged")
+            assert seed["fields"]["near_field_level"] == 0.0
+
+            await client.send(json.dumps(
+                {"type": "SetFilterTuning", "field": "near_field_level", "value": 0.07}
+            ))
+            echo = await _recv_type(client, "FilterTuningChanged")
+            assert echo["fields"]["near_field_level"] == 0.07
+            assert tuning.near_field_level == 0.07  # applied server-side too
+
+
+async def test_bad_filter_tuning_raises_error_not_crash():
+    from harp.config import FilterTuning
+
+    bus = Bus()
+    tuning = FilterTuning()
+    async with _build_server(
+        bus, "127.0.0.1", 0,
+        set_filter_tuning=tuning.apply,
+        get_filter_tuning=tuning.snapshot,
+    ) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            await _recv_type(client, "FilterTuningChanged")  # initial seed
+            await client.send(json.dumps(
+                {"type": "SetFilterTuning", "field": "bogus", "value": 1}
+            ))
+            err = await _recv_type(client, "ErrorRaised")
+            assert err["fields"]["where"] == "dashboard.filter_tuning"

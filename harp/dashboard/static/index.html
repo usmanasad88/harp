@@ -23,6 +23,44 @@
       <button id="mute-btn" class="mute-btn" disabled>mic — connecting…</button>
     </section>
 
+    <section class="panel filter-tuning" id="filter-tuning" hidden>
+      <h2>Filter tuning <span class="dim">(two-agent noise filter)</span></h2>
+      <div class="panel-body">
+        <div class="tuning-row">
+          <label for="t-near">Loudness gate <span class="dim">near-field RMS</span></label>
+          <input type="range" id="t-near" min="0" max="0.4" step="0.005" />
+          <span class="tuning-val" id="t-near-val">—</span>
+          <span class="badge badge-ok">instant</span>
+        </div>
+        <div class="tuning-row">
+          <label for="t-vadthr">VAD threshold</label>
+          <input type="range" id="t-vadthr" min="0" max="1" step="0.05" />
+          <span class="tuning-val" id="t-vadthr-val">—</span>
+          <span class="badge badge-warn">next conversation</span>
+        </div>
+        <div class="tuning-row">
+          <label for="t-vadsil">VAD silence <span class="dim">ms</span></label>
+          <input type="range" id="t-vadsil" min="100" max="3000" step="50" />
+          <span class="tuning-val" id="t-vadsil-val">—</span>
+          <span class="badge badge-warn">next conversation</span>
+        </div>
+        <div class="tuning-row">
+          <label for="t-nr">Noise reduction</label>
+          <select id="t-nr">
+            <option value="none">none</option>
+            <option value="near_field">near_field</option>
+            <option value="far_field">far_field</option>
+          </select>
+          <span class="badge badge-warn">next conversation · OpenAI</span>
+        </div>
+        <p class="dim tuning-hint">
+          Calibrate the loudness gate against your room's level with
+          <code>uv run python -m harp.listener</code>. These are runtime overrides —
+          copy good values into <code>harp.yaml</code> to persist them.
+        </p>
+      </div>
+    </section>
+
     <section class="grid-3">
       <div class="panel" id="panel-state">
         <h2>State</h2>

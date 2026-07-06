@@ -156,6 +156,18 @@ class MicMuteChanged(Event):
     muted: bool
 
 
+@dataclass
+class FilterTuningChanged(Event):
+    """The two-agent filter's live tuning changed (a dashboard slider, or the
+    seeded startup value). Carries the full current snapshot so every open tab
+    stays in sync. See harp/config.FilterTuning and harp/voice/two_agent."""
+
+    near_field_level: float
+    vad_threshold: float
+    vad_silence_ms: int
+    noise_reduction: str
+
+
 # --- health & errors ---------------------------------------------------------
 @dataclass
 class Heartbeat(Event):

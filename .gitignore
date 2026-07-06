@@ -32,6 +32,10 @@ audio/
 *.wav
 conversation_history*.json
 current_output.txt
+# ...but the canned status-voice clips are committed assets, not runtime dumps:
+# they're referenced by assets/status_voice/manifest.json and must ship with the
+# repo so status_voice can speak on any machine (see harp/orchestrator/status_voice.py).
+!assets/status_voice/**/*.wav
 
 # Enrolled people — photos + face fingerprints of real people, never commit
 # (the convention doc people/README.md is the one exception)

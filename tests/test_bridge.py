@@ -6,6 +6,7 @@ a fake provider (scripted events), fake mic (never yields), fake speaker
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 
 import pytest
@@ -35,8 +36,9 @@ def _config() -> SessionConfig:
 
 
 class FakeConn:
-    def __init__(self, scripted):
+    def __init__(self, scripted, hold_open=False):
         self._scripted = scripted
+        self._hold_open = hold_open
         self.sent_texts: list[str] = []
         self.sent_audio: list[bytes] = []
         self.tool_responses: list[tuple[ToolCall, object]] = []
@@ -53,16 +55,19 @@ class FakeConn:
     async def events(self):
         for ev in self._scripted:
             yield ev
+        if self._hold_open:  # keep the session open (tests that drive input live)
+            await asyncio.Event().wait()
 
 
 class FakeProvider:
-    def __init__(self, scripted):
+    def __init__(self, scripted, hold_open=False):
         self.scripted = scripted
+        self.hold_open = hold_open
         self.conn: FakeConn | None = None
 
     @asynccontextmanager
     async def connect(self, config):
-        self.conn = FakeConn(self.scripted)
+        self.conn = FakeConn(self.scripted, self.hold_open)
         yield self.conn
 
 
@@ -219,3 +224,61 @@ async def test_no_opening_text_sends_nothing():
     await asyncio.wait_for(bridge.run(context=""), 1.0)
 
     assert provider.conn.sent_texts == []
+
+
+def test_mic_gate_sends_silence_while_released():
+    """Push-to-talk: real mic audio only while held; same-length silence when
+    released, so no room noise reaches the model but its VAD still sees quiet."""
+    bus = Bus()
+    held = {"down": True}
+    bridge, _, _ = make_bridge(bus, [], mic_gate=lambda: held["down"])
+
+    assert bridge._mic_payload(b"abcd") == b"abcd"  # key held → real audio
+    held["down"] = False
+    assert bridge._mic_payload(b"abcd") == b"\x00\x00\x00\x00"  # released → silence
+
+
+def test_ungated_mic_passes_audio_through():
+    bus = Bus()
+    bridge, _, _ = make_bridge(bus, [])  # no gate = the default, non-PTT behavior
+    assert bridge._mic_payload(b"abcd") == b"abcd"
+
+
+async def _wait_for(pred, timeout=1.0):
+    loop = asyncio.get_running_loop()
+    end = loop.time() + timeout
+    while loop.time() < end:
+        if pred():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("condition not met in time")
+
+
+async def test_text_driven_responder_forwards_text_and_opens_no_mic():
+    """The two-agent responder: fed by an injected text queue, it forwards each
+    message to the model as a user turn and never opens a microphone."""
+    bus = Bus()
+    inbox: asyncio.Queue[str] = asyncio.Queue()
+    provider = FakeProvider([], hold_open=True)  # stay open so _pump_text runs
+
+    def no_mic(rate):
+        raise AssertionError("a text-driven responder must not open a mic")
+
+    bridge = VoiceBridge(
+        bus,
+        "openai",
+        make_config=_config,
+        text_inbox=inbox,
+        provider=provider,
+        mic_factory=no_mic,
+        speaker_factory=FakeSpeaker,
+    )
+    task = asyncio.create_task(bridge.run())
+    inbox.put_nowait("hello from the filter")
+    await _wait_for(
+        lambda: provider.conn is not None
+        and "hello from the filter" in provider.conn.sent_texts
+    )
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task

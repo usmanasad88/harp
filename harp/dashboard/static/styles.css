@@ -193,3 +193,39 @@ main {
 .log-row .ts { color: var(--dim); flex-shrink: 0; }
 .log-row .type { flex-shrink: 0; color: var(--blue); }
 .log-row .fields { color: var(--text); word-break: break-word; }
+
+/* filter tuning (two-agent noise filter) */
+.tuning-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tuning-row:last-of-type { border-bottom: none; }
+.tuning-row label { flex: 0 0 200px; color: var(--text); }
+.tuning-row input[type="range"] { flex: 1; min-width: 100px; accent-color: var(--teal); }
+.tuning-row select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.tuning-val {
+  flex: 0 0 56px;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--teal);
+}
+.tuning-hint { margin: 10px 0 0; font-size: 12px; }
+.tuning-hint code {
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  .tuning-row { flex-wrap: wrap; }
+  .tuning-row label { flex-basis: 100%; }
+}

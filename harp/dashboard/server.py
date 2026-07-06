@@ -50,7 +50,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
 
 from ..core.bus import Bus
-from ..core.events import ErrorRaised, Event, MicMuteChanged
+from ..core.events import ErrorRaised, Event, FilterTuningChanged, MicMuteChanged
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -71,6 +71,10 @@ def _read_static(filename: str) -> bytes:
 SnapshotFn = Callable[[], "bytes | None"]
 SetMicMutedFn = Callable[[bool], None]
 GetMicMutedFn = Callable[[], bool]
+# Filter tuning: apply(field, value) -> the full new snapshot dict; snapshot() ->
+# the current one. Both injected by app.py (only in two-agent mode).
+SetFilterTuningFn = Callable[[str, object], dict]
+GetFilterTuningFn = Callable[[], dict]
 
 
 def _http_response(
@@ -134,18 +138,30 @@ async def _forward_events(
 
 
 async def _handle_command(
-    raw: str | bytes, bus: Bus, set_mic_muted: SetMicMutedFn | None
+    raw: str | bytes,
+    bus: Bus,
+    set_mic_muted: SetMicMutedFn | None,
+    set_filter_tuning: SetFilterTuningFn | None,
 ) -> None:
-    """Parse and act on one incoming client message. Anything that isn't
-    exactly the one recognized shape is silently ignored — this is the
-    dashboard's only write surface, so it stays deliberately narrow rather
-    than a general command channel."""
+    """Parse and act on one incoming client message. Only the two recognized
+    shapes (SetMicMuted, SetFilterTuning) do anything; everything else is
+    silently ignored — the dashboard's write surface stays deliberately narrow
+    rather than a general command channel."""
     try:
         msg = json.loads(raw)
     except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
         return
-    if not isinstance(msg, dict) or msg.get("type") != "SetMicMuted":
+    if not isinstance(msg, dict):
         return
+    if msg.get("type") == "SetMicMuted":
+        await _handle_set_mic_muted(msg, bus, set_mic_muted)
+    elif msg.get("type") == "SetFilterTuning":
+        await _handle_set_filter_tuning(msg, bus, set_filter_tuning)
+
+
+async def _handle_set_mic_muted(
+    msg: dict, bus: Bus, set_mic_muted: SetMicMutedFn | None
+) -> None:
     muted = msg.get("muted")
     if not isinstance(muted, bool):
         return
@@ -165,11 +181,39 @@ async def _handle_command(
     await bus.publish(MicMuteChanged(muted=muted))
 
 
+async def _handle_set_filter_tuning(
+    msg: dict, bus: Bus, set_filter_tuning: SetFilterTuningFn | None
+) -> None:
+    """One filter-knob change: {type, field, value}. The setter validates and
+    clamps (config.FilterTuning.apply) and returns the full new snapshot, which
+    we broadcast as FilterTuningChanged so every open tab tracks it."""
+    field = msg.get("field")
+    if not isinstance(field, str) or "value" not in msg:
+        return
+    if set_filter_tuning is None:
+        await bus.publish(
+            ErrorRaised(
+                where="dashboard.filter_tuning",
+                message="filter tuning isn't available this run (not in two-agent mode)",
+            )
+        )
+        return
+    try:
+        snapshot = set_filter_tuning(field, msg["value"])
+    except (ValueError, TypeError) as exc:  # unknown field / unusable value
+        await bus.publish(ErrorRaised(where="dashboard.filter_tuning", message=str(exc)))
+        return
+    await bus.publish(FilterTuningChanged(**snapshot))
+
+
 async def _receive_commands(
-    connection: ServerConnection, bus: Bus, set_mic_muted: SetMicMutedFn | None
+    connection: ServerConnection,
+    bus: Bus,
+    set_mic_muted: SetMicMutedFn | None,
+    set_filter_tuning: SetFilterTuningFn | None,
 ) -> None:
     async for raw in connection:
-        await _handle_command(raw, bus, set_mic_muted)
+        await _handle_command(raw, bus, set_mic_muted, set_filter_tuning)
 
 
 async def _send_initial_mic_state(
@@ -189,16 +233,36 @@ async def _send_initial_mic_state(
         await connection.send(_encode(MicMuteChanged(muted=muted)))
 
 
+async def _send_initial_filter_tuning(
+    connection: ServerConnection, get_filter_tuning: GetFilterTuningFn | None
+) -> None:
+    """Same one-shot seeding as the mic state: a fresh tab needs the current
+    filter knobs to position its sliders. None (single-agent mode) = no panel."""
+    if get_filter_tuning is None:
+        return
+    try:
+        snapshot = get_filter_tuning()
+    except Exception:
+        return
+    with contextlib.suppress(ConnectionClosed):
+        await connection.send(_encode(FilterTuningChanged(**snapshot)))
+
+
 async def _stream_events(
     connection: ServerConnection,
     bus: Bus,
     set_mic_muted: SetMicMutedFn | None,
     get_mic_muted: GetMicMutedFn | None,
+    set_filter_tuning: SetFilterTuningFn | None,
+    get_filter_tuning: GetFilterTuningFn | None,
 ) -> None:
     await _send_initial_mic_state(connection, get_mic_muted)
+    await _send_initial_filter_tuning(connection, get_filter_tuning)
     stream = bus.subscribe()
     forward_task = asyncio.ensure_future(_forward_events(connection, stream))
-    receive_task = asyncio.ensure_future(_receive_commands(connection, bus, set_mic_muted))
+    receive_task = asyncio.ensure_future(
+        _receive_commands(connection, bus, set_mic_muted, set_filter_tuning)
+    )
     try:
         # `forward_task` can sit forever awaiting the *next* bus event with
         # nothing to send — it has no way to notice the client disconnected
@@ -222,10 +286,17 @@ async def _stream_events(
 
 
 def _handler(
-    bus: Bus, set_mic_muted: SetMicMutedFn | None, get_mic_muted: GetMicMutedFn | None
+    bus: Bus,
+    set_mic_muted: SetMicMutedFn | None,
+    get_mic_muted: GetMicMutedFn | None,
+    set_filter_tuning: SetFilterTuningFn | None,
+    get_filter_tuning: GetFilterTuningFn | None,
 ):
     async def handle(connection: ServerConnection) -> None:
-        await _stream_events(connection, bus, set_mic_muted, get_mic_muted)
+        await _stream_events(
+            connection, bus, set_mic_muted, get_mic_muted,
+            set_filter_tuning, get_filter_tuning,
+        )
 
     return handle
 
@@ -237,12 +308,14 @@ def _build_server(
     snapshot: SnapshotFn | None = None,
     set_mic_muted: SetMicMutedFn | None = None,
     get_mic_muted: GetMicMutedFn | None = None,
+    set_filter_tuning: SetFilterTuningFn | None = None,
+    get_filter_tuning: GetFilterTuningFn | None = None,
 ) -> Server:
     """The `websockets` server as an async context manager. Split out from
     `serve()` so tests can bind an ephemeral port (port=0) and inspect it
     without running the forever-loop below."""
     return ws_serve(
-        _handler(bus, set_mic_muted, get_mic_muted),
+        _handler(bus, set_mic_muted, get_mic_muted, set_filter_tuning, get_filter_tuning),
         host,
         port,
         process_request=functools.partial(_process_request, snapshot),
@@ -256,12 +329,15 @@ async def serve(
     snapshot: SnapshotFn | None = None,
     set_mic_muted: SetMicMutedFn | None = None,
     get_mic_muted: GetMicMutedFn | None = None,
+    set_filter_tuning: SetFilterTuningFn | None = None,
+    get_filter_tuning: GetFilterTuningFn | None = None,
 ) -> None:
     """Run the dashboard server, bound to the bus, until cancelled. Observes
-    everything; the one thing it can act on is the mic-mute button (see the
-    module docstring) via `set_mic_muted`/`get_mic_muted`."""
+    everything; the two things it can act on are the mic-mute button and (in
+    two-agent mode) the filter-tuning sliders (see the module docstring)."""
     async with _build_server(
-        bus, host, port, snapshot, set_mic_muted, get_mic_muted
+        bus, host, port, snapshot, set_mic_muted, get_mic_muted,
+        set_filter_tuning, get_filter_tuning,
     ) as server:
         print(f"HARP dashboard: http://{host}:{port}")
         await server.serve_forever()

@@ -121,7 +121,7 @@ def main() -> None:
         enrolled += 1
         print(f"  = {info['name']} ({len(embeddings)} photo(s))")
 
-    print(f"\nEnrolled {enrolled} of {len(folders)} people → {args.store}")
+    print(f"\nEnrolled {enrolled} of {len(folders)} people -> {args.store}")
     print("Check recognition against the live webcam with: "
           "uv run python scripts/preview_face_id.py")
 

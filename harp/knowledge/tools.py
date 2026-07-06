@@ -78,6 +78,13 @@ def _get_retriever() -> Retriever:
     return _retriever
 
 
+def index_size() -> int:
+    """Number of indexed chunks, building the index if it isn't yet. Handy for
+    a startup line ("N chunks indexed from data/") and it warms the index so
+    the first real search_knowledge call isn't paying the file-read cost."""
+    return len(_get_retriever())
+
+
 async def dispatch(name: str, arguments: dict) -> Any:
     """Run a tool call by name and return its result for respond_tool."""
     if name != TOOL_NAME:

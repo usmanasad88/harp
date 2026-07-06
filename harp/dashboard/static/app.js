@@ -109,6 +109,9 @@ function handleMessage(msg) {
       micMuted = msg.fields.muted;
       updateMuteButton();
       break;
+    case "FilterTuningChanged":
+      renderFilterTuning(msg.fields);
+      break;
     case "InteractionStarted":
       addDivider(`interaction started (${msg.fields.reason})`);
       currentTurn = null;
@@ -172,6 +175,53 @@ muteBtn.addEventListener("click", () => {
   if (micMuted === null || !ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "SetMicMuted", muted: !micMuted }));
 });
+
+// --- filter tuning (two-agent noise filter) ------------------------------
+// Sliders for the loudness gate + filter-session VAD. Confirmation-based like
+// the mute button: a change sends {type:"SetFilterTuning", field, value}; the
+// server validates + clamps and echoes FilterTuningChanged, which is what
+// actually moves the sliders — so every open tab stays in sync. The panel is
+// hidden until the first FilterTuningChanged arrives (i.e. only in two-agent
+// mode; single-agent runs never send it).
+
+const tuningControls = [
+  { id: "t-near", field: "near_field_level", fmt: (v) => Number(v).toFixed(3) },
+  { id: "t-vadthr", field: "vad_threshold", fmt: (v) => Number(v).toFixed(2) },
+  { id: "t-vadsil", field: "vad_silence_ms", fmt: (v) => String(Math.round(v)) },
+];
+
+function renderFilterTuning(fields) {
+  document.getElementById("filter-tuning").hidden = false;
+  for (const c of tuningControls) {
+    const input = document.getElementById(c.id);
+    const val = document.getElementById(c.id + "-val");
+    // Don't yank a control the user is actively dragging out from under them.
+    if (document.activeElement !== input) input.value = fields[c.field];
+    if (val) val.textContent = c.fmt(fields[c.field]);
+  }
+  const nr = document.getElementById("t-nr");
+  if (document.activeElement !== nr) nr.value = fields.noise_reduction;
+}
+
+function sendTuning(field, value) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "SetFilterTuning", field, value }));
+}
+
+function wireTuningControls() {
+  for (const c of tuningControls) {
+    const input = document.getElementById(c.id);
+    const val = document.getElementById(c.id + "-val");
+    // Live label while dragging; send only on release, so we don't flood the WS.
+    input.addEventListener("input", () => {
+      if (val) val.textContent = c.fmt(input.value);
+    });
+    input.addEventListener("change", () => sendTuning(c.field, Number(input.value)));
+  }
+  document
+    .getElementById("t-nr")
+    .addEventListener("change", (e) => sendTuning("noise_reduction", e.target.value));
+}
 
 // --- state panel -------------------------------------------------------
 
@@ -372,5 +422,6 @@ function logRaw(msg) {
   capRows(container, MAX_LOG_ROWS);
 }
 
+wireTuningControls();
 connect();
 pollCamera();

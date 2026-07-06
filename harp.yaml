@@ -5,7 +5,7 @@ listener:                  # the always-on wake listener (harp/listener)
   enabled: true
   # Sound levels are 0.0 – 1.0. Watch your own live level with:
   #     uv run python -m harp.listener
-  wake_level: 0.25         # sound at least this loud wakes HARP by itself
+  wake_level: 0.15         # sound at least this loud wakes HARP by itself
                            # (set to 1.0 to disable loudness-only wake)
   transcribe_level: 0.04   # sound this loud starts the wake-word transcriber
   # If a transcribed phrase contains one of these words, HARP wakes up.
@@ -15,6 +15,58 @@ listener:                  # the always-on wake listener (harp/listener)
   # Whisper model used for wake-word transcription: tiny | base | small
   # (bigger = more accurate but slower; downloaded automatically on first use)
   whisper_model: base
+
+push_to_talk:              # on-demand hold-to-talk (harp/interaction/push_to_talk)
+  # A manual, per-session mode for noisy places (an expo hall). enabled: true
+  # only ARMS the key — HARP still starts hands-free (the listener + wave above
+  # keep working). Press the key while idle to START a session whose mic is
+  # gated: the model hears you only WHILE the key is held, so crowd noise can't
+  # false-wake it or bleed into its turn-taking. When that session ends, HARP
+  # goes back to hands-free listening automatically.
+  enabled: true
+  key: space               # hold this to talk: space | enter | a single character
+
+interaction:               # when a live session ends on its own (harp/interaction)
+  # No face in view for this many continuous seconds ends the conversation
+  # (face-ID doubles as presence). A face coming back resets the countdown.
+  absence_timeout_seconds: 10
+
+filter_agent:              # two-agent noise/intent filtering (harp/voice/two_agent)
+  # EXPERIMENTAL. For very loud rooms. When enabled, a FIRST realtime agent
+  # listens to the mic, throws away background chatter / crowd noise / speech not
+  # meant for HARP, and relays ONLY the intended message (as text) to the normal
+  # responder, which replies with voice. The responder never hears raw room audio
+  # — it gets "silence, then a clean message". Costs a second live session and
+  # adds ~1–2s latency; it is half-duplex (you can't interrupt HARP mid-reply).
+  # Leave false to run the normal single agent. Push-to-talk remains the fallback.
+  enabled: true
+  provider: ""             # "" = same provider as the responder; or gemini | openai
+  response_tail_seconds: 0.8  # keep the filter's mic muted this long after a reply
+                              # (so it doesn't relay the tail of HARP's own voice)
+  # Noise knobs — all live-tunable on the dashboard while enabled. These are the
+  # DEFAULTS; the dashboard sliders override them at runtime (copy good values
+  # back here to persist). The filter hallucinating a message from room noise is
+  # the thing to fight.
+  near_field_level: 0.0    # (1) loudness gate: only mic audio at least this loud
+                           # (RMS 0..1, same scale as `python -m harp.listener`)
+                           # reaches the filter; quieter noise → silence. 0 = off.
+                           # Takes effect instantly. Calibrate to just above your
+                           # room's idle level (often ~0.02–0.08).
+  vad_threshold: 0.5       # (2) filter server-VAD: higher = needs clearer speech
+                           # to commit a turn (try 0.7–0.8 in a loud hall).
+  vad_silence_ms: 500      #     trailing silence (ms) that ends a turn.
+  noise_reduction: none    #     none | near_field | far_field (OpenAI; Gemini
+                           #     ignores it). near_field suits a close mic.
+                           # vad_* + noise_reduction apply to the NEXT conversation.
+
+status_voice:              # pre-recorded status announcements (harp/orchestrator/status_voice)
+  # Canned lines that play WITHOUT the cloud model: "Starting up", "Connection
+  # established" / "I can't reach the internet", "Going on standby", error
+  # notices, "Shutting down". They make a live run legible — you HEAR what HARP
+  # is doing at boot, on errors, and when a conversation ends. Set false to run
+  # silently. Only English ('en') clips ship today.
+  enabled: true
+  lang: en
 
 heartbeat:
   file: .harp/heartbeat    # the agent touches this file every beat; the

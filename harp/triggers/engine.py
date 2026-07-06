@@ -1,20 +1,30 @@
 """The proactive-trigger rule engine.
 
-Subscribes to GestureDetected + PersonIdentified (and reads memory for open
-follow-ups). When a rule fires AND its guard rails allow, it publishes a wake
-request that the orchestrator treats as a wake condition. Only meaningful while
-STANDBY — it must not pester someone already mid-conversation.
+Subscribes to GestureDetected and turns a wave into a wake request: someone
+waving at HARP is an invitation to talk. It publishes `WakeRequested`; the
+orchestrator owns the actual session open and only honors it while STANDBY, so
+a wave mid-conversation is harmlessly ignored.
 
-To build:
-  - a small rule set (wave → greet; known-person-with-follow-up → re-engage),
-  - cooldowns + de-dup so HARP doesn't repeatedly approach the same person,
-  - publish `WakeRequested` (core/events.py); the orchestrator owns the actual
-    open and only honors it while STANDBY.
+De-duplication is deliberately upstream: the gesture recognizer
+(vision/gestures.py) already debounces with a hold requirement + cooldown and
+emits GestureDetected once per sustained wave, so this engine can stay a thin
+translation from "a wave happened" to "please wake." Richer rules
+(known-person-with-an-open-follow-up → re-engage) can join here later.
 """
 
 from __future__ import annotations
 
+import logging
+
 from ..core.bus import Bus
+from ..core.events import GestureDetected, WakeRequested
+
+logger = logging.getLogger(__name__)
+
+_WAVE_CONTEXT = (
+    "(You just woke from standby because someone waved at you. Greet them "
+    "warmly and ask how you can help.)"
+)
 
 
 class TriggerEngine:
@@ -23,4 +33,9 @@ class TriggerEngine:
 
     async def run(self) -> None:
         """Evaluate proactive rules against bus events and request wakes."""
-        raise NotImplementedError
+        async for ev in self._bus.subscribe(GestureDetected):
+            if ev.kind == "wave":
+                logger.info("wave → requesting wake")
+                await self._bus.publish(
+                    WakeRequested(reason="wave", context=_WAVE_CONTEXT)
+                )

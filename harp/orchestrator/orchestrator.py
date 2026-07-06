@@ -21,11 +21,13 @@ nothing from the subsystems — only core.bus, core.events, core.state, and the
 voice layer it drives.
 
 Current status: the state machine, wake/end flow, error handling with backoff,
-heartbeat, AND the voice session are real: `_open_session` runs the injected
-VoiceBridge (harp/voice/bridge.py) as a task, `_close_session` cancels it.
-The bridge is optional — constructed without one (tests, partial wiring) the
-orchestrator drives state and events exactly as before, with no live session.
-Still to come: status_voice narration at boot/error points.
+heartbeat, the voice session, AND status narration are real. `_open_session`
+runs the injected VoiceBridge (harp/voice/bridge.py) as a task, `_close_session`
+cancels it. An injected StatusVoice (orchestrator/status_voice.py) speaks canned
+lines at boot / standby / error / shutdown, and an injected connectivity probe
+lets boot announce "connection established" vs "no internet". Both the bridge
+and the status voice are optional — constructed without them (tests, partial
+wiring) the orchestrator drives state and events exactly as before, silently.
 """
 
 from __future__ import annotations
@@ -53,6 +55,16 @@ from .retry import backoff_seconds, should_give_up
 logger = logging.getLogger(__name__)
 
 
+def _error_line(where: str) -> str:
+    """Map an ErrorRaised.where to the closest canned status clip."""
+    w = where.lower()
+    if "mic" in w or "audio" in w:
+        return "mic_problem"
+    if "voice" in w or "session" in w or "provider" in w or "network" in w:
+        return "connection_lost"
+    return "error_recoverable"
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -61,6 +73,8 @@ class Orchestrator:
         heartbeat_interval: float = 5.0,
         heartbeat_file: Path | None = None,
         voice_bridge=None,
+        status_voice=None,
+        connectivity_check=None,
     ) -> None:
         self._bus = bus
         self._provider = provider_name
@@ -77,6 +91,12 @@ class Orchestrator:
         # what the bus-driven tests and partial wirings rely on.
         self._voice_bridge = voice_bridge
         self._session_task: asyncio.Task | None = None
+        # Canned status narration (orchestrator/status_voice.StatusVoice) and an
+        # optional boot connectivity probe (() -> bool). Both injected by app.py;
+        # both None keeps the old behavior — silent boot, no connection lines —
+        # which every existing bus-driven test relies on.
+        self._status = status_voice
+        self._connectivity_check = connectivity_check
 
     @property
     def state(self) -> AppState:
@@ -125,14 +145,21 @@ class Orchestrator:
         await self._bus.publish(StateChanged(old=old.value, new=target.value))
 
     async def _boot(self) -> None:
-        """STARTING → STANDBY. Later: canned "starting up" line (status_voice)
-        and a connectivity check against the provider before declaring STANDBY."""
+        """STARTING → STANDBY: announce the boot, then (if a connectivity probe
+        was injected) report whether we can reach the internet, so a failure to
+        dial the cloud is spoken up front rather than only surfacing on the first
+        wake. The probe is best-effort — it never blocks reaching STANDBY."""
+        await self._say("starting_up")
+        if self._connectivity_check is not None:
+            reachable = await self._check_connectivity()
+            await self._say("connection_established" if reachable else "no_internet")
         await self._to(AppState.STANDBY, "boot complete")
 
     async def _shutdown(self, reason: str) -> None:
         """Close any open session gracefully, then head to STOPPING."""
         if self._state is AppState.ACTIVE:
-            await self._close_session(f"shutting down: {reason}")
+            await self._close_session(f"shutting down: {reason}", narrate=False)
+        await self._say("shutting_down")
         await self._to(AppState.STOPPING, reason)
 
     # --- session lifecycle ------------------------------------------------------
@@ -149,12 +176,16 @@ class Orchestrator:
             self._session_task = asyncio.create_task(self._run_session(context))
         await self._bus.publish(InteractionStarted(reason=reason, context=context))
 
-    async def _close_session(self, reason: str) -> None:
+    async def _close_session(self, reason: str, narrate: bool = True) -> None:
         """ACTIVE → STANDBY: tear the session down; publish InteractionEnded so
-        the memory summarizer can run."""
+        the memory summarizer can run. `narrate` plays the "going on standby"
+        cue on a normal end; the error/shutdown paths pass narrate=False because
+        they speak their own line (an error notice / a goodbye) instead."""
         await self._stop_session_task()
         await self._to(AppState.STANDBY, reason)
         await self._bus.publish(InteractionEnded(reason=reason))
+        if narrate:
+            await self._say("going_standby")
 
     async def _run_session(self, context: str) -> None:
         """Body of the session task. It never mutates orchestrator state
@@ -185,18 +216,42 @@ class Orchestrator:
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
+    # --- status narration -------------------------------------------------------
+
+    async def _say(self, line_id: str) -> None:
+        """Play a canned status line if a StatusVoice was injected. Fully
+        guarded: narration is best-effort and must never break the supervisor."""
+        if self._status is None:
+            return
+        try:
+            await self._status.play(line_id)
+        except Exception:
+            logger.exception("status narration failed for %s", line_id)
+
+    async def _check_connectivity(self) -> bool:
+        """Run the injected (blocking) connectivity probe off-thread; any failure
+        counts as unreachable rather than crashing boot."""
+        try:
+            return bool(await asyncio.to_thread(self._connectivity_check))
+        except Exception:
+            logger.exception("connectivity check failed")
+            return False
+
     # --- errors & liveness ------------------------------------------------------
 
     async def _handle_error(self, ev: ErrorRaised) -> None:
         """Non-fatal: narrate, back off, resume via STANDBY. Fatal: STOPPING."""
         logger.error("error in %s: %s (fatal=%s)", ev.where, ev.message, ev.fatal)
         if self._state is AppState.ACTIVE:
-            await self._close_session(f"error in {ev.where}")
+            await self._close_session(f"error in {ev.where}", narrate=False)
         if ev.fatal:
+            await self._say("error_fatal")
             await self._to(AppState.STOPPING, ev.message)
             return
         await self._to(AppState.ERROR, ev.message)
-        # Later: say the problem out loud here (status_voice), per PLAN.md.
+        # Say the problem out loud (status_voice), per PLAN.md: pick the closest
+        # canned line for where it failed (mic / network / generic).
+        await self._say(_error_line(ev.where))
         self._error_count += 1
         now = time.monotonic()
         if self._first_error_at is None:

@@ -34,6 +34,12 @@ class SessionConfig:
     # Seam for later: tool/function declarations exposed to the model (RAG,
     # web search). Empty in the vanilla providers; wired when tools land.
     tools: list[Any] = field(default_factory=list)
+    # Voice-activity-detection tuning. Mainly for the two-agent filter, which
+    # must NOT commit a turn on room noise; each backend maps these onto its own
+    # VAD config. None = leave the provider's default.
+    vad_threshold: float | None = None       # 0..1; higher = needs louder/clearer speech
+    vad_silence_ms: int | None = None        # trailing silence (ms) that ends a turn
+    noise_reduction: str | None = None       # "near_field" | "far_field" | None
 
 
 # --- Normalized events a provider emits -------------------------------------
