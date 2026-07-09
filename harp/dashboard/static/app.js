@@ -109,8 +109,8 @@ function handleMessage(msg) {
       micMuted = msg.fields.muted;
       updateMuteButton();
       break;
-    case "FilterTuningChanged":
-      renderFilterTuning(msg.fields);
+    case "VoiceTuningChanged":
+      renderVoiceTuning(msg.fields);
       break;
     case "InteractionStarted":
       addDivider(`interaction started (${msg.fields.reason})`);
@@ -176,13 +176,13 @@ muteBtn.addEventListener("click", () => {
   ws.send(JSON.stringify({ type: "SetMicMuted", muted: !micMuted }));
 });
 
-// --- filter tuning (two-agent noise filter) ------------------------------
-// Sliders for the loudness gate + filter-session VAD. Confirmation-based like
-// the mute button: a change sends {type:"SetFilterTuning", field, value}; the
-// server validates + clamps and echoes FilterTuningChanged, which is what
-// actually moves the sliders — so every open tab stays in sync. The panel is
-// hidden until the first FilterTuningChanged arrives (i.e. only in two-agent
-// mode; single-agent runs never send it).
+// --- voice tuning (noise/VAD, whichever agent owns the mic) --------------
+// Sliders for the loudness gate + server-VAD + noise reduction. Confirmation-
+// based like the mute button: a change sends {type:"SetVoiceTuning", field,
+// value}; the server validates + clamps and echoes VoiceTuningChanged, which
+// is what actually moves the sliders — so every open tab stays in sync. The
+// panel is hidden until the first VoiceTuningChanged arrives (app.py seeds one
+// on every connection, single-agent or two-agent).
 
 const tuningControls = [
   { id: "t-near", field: "near_field_level", fmt: (v) => Number(v).toFixed(3) },
@@ -190,8 +190,8 @@ const tuningControls = [
   { id: "t-vadsil", field: "vad_silence_ms", fmt: (v) => String(Math.round(v)) },
 ];
 
-function renderFilterTuning(fields) {
-  document.getElementById("filter-tuning").hidden = false;
+function renderVoiceTuning(fields) {
+  document.getElementById("voice-tuning").hidden = false;
   for (const c of tuningControls) {
     const input = document.getElementById(c.id);
     const val = document.getElementById(c.id + "-val");
@@ -205,7 +205,7 @@ function renderFilterTuning(fields) {
 
 function sendTuning(field, value) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type: "SetFilterTuning", field, value }));
+  ws.send(JSON.stringify({ type: "SetVoiceTuning", field, value }));
 }
 
 function wireTuningControls() {

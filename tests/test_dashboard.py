@@ -122,45 +122,47 @@ async def _recv_type(client, wanted, timeout=1.0):
     raise AssertionError(f"no {wanted} received")
 
 
-async def test_set_filter_tuning_applies_and_broadcasts():
-    from harp.config import FilterTuning
+async def test_set_voice_tuning_applies_and_broadcasts():
+    """This wiring is what makes the dashboard's tuning panel work in BOTH
+    single-agent and two-agent mode — app.py now injects it unconditionally."""
+    from harp.config import VoiceTuning
 
     bus = Bus()
-    tuning = FilterTuning()
+    tuning = VoiceTuning()
     async with _build_server(
         bus, "127.0.0.1", 0,
-        set_filter_tuning=tuning.apply,
-        get_filter_tuning=tuning.snapshot,
+        set_voice_tuning=tuning.apply,
+        get_voice_tuning=tuning.snapshot,
     ) as server:
         port = server.sockets[0].getsockname()[1]
         async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
             # A fresh connection is seeded with the current tuning once.
-            seed = await _recv_type(client, "FilterTuningChanged")
+            seed = await _recv_type(client, "VoiceTuningChanged")
             assert seed["fields"]["near_field_level"] == 0.0
 
             await client.send(json.dumps(
-                {"type": "SetFilterTuning", "field": "near_field_level", "value": 0.07}
+                {"type": "SetVoiceTuning", "field": "near_field_level", "value": 0.07}
             ))
-            echo = await _recv_type(client, "FilterTuningChanged")
+            echo = await _recv_type(client, "VoiceTuningChanged")
             assert echo["fields"]["near_field_level"] == 0.07
             assert tuning.near_field_level == 0.07  # applied server-side too
 
 
-async def test_bad_filter_tuning_raises_error_not_crash():
-    from harp.config import FilterTuning
+async def test_bad_voice_tuning_raises_error_not_crash():
+    from harp.config import VoiceTuning
 
     bus = Bus()
-    tuning = FilterTuning()
+    tuning = VoiceTuning()
     async with _build_server(
         bus, "127.0.0.1", 0,
-        set_filter_tuning=tuning.apply,
-        get_filter_tuning=tuning.snapshot,
+        set_voice_tuning=tuning.apply,
+        get_voice_tuning=tuning.snapshot,
     ) as server:
         port = server.sockets[0].getsockname()[1]
         async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
-            await _recv_type(client, "FilterTuningChanged")  # initial seed
+            await _recv_type(client, "VoiceTuningChanged")  # initial seed
             await client.send(json.dumps(
-                {"type": "SetFilterTuning", "field": "bogus", "value": 1}
+                {"type": "SetVoiceTuning", "field": "bogus", "value": 1}
             ))
             err = await _recv_type(client, "ErrorRaised")
-            assert err["fields"]["where"] == "dashboard.filter_tuning"
+            assert err["fields"]["where"] == "dashboard.voice_tuning"

@@ -24,6 +24,9 @@ How it works, and why it's shaped this way:
     is speaking it returns False and we feed the model digital silence, so the
     filter never relays the robot talking to itself (same silence-substitution
     trick push-to-talk uses in the bridge).
+  - `LoudnessGate` (the proximity/noise gate below) is shared with the plain
+    single-agent bridge — see loudness_gate.py — since both face the same room
+    noise; re-exported here for backward compatibility.
 
 Everything network-/hardware-shaped is injected so this is testable with a fake
 provider and fake mic, exactly like VoiceBridge.
@@ -35,16 +38,14 @@ import asyncio
 import contextlib
 import logging
 import re
-from collections import deque
 from typing import Awaitable, Callable
-
-import numpy as np
 
 from ..config import IGNORE_SENTINEL
 from ..core.bus import Bus
 from ..core.events import ErrorRaised
 from . import get_provider
 from .audio_io import Microphone
+from .loudness_gate import LoudnessGate
 from .provider import (
     AgentTranscript,
     ProviderError,
@@ -60,54 +61,7 @@ RelayCallback = Callable[[str], Awaitable[None]]
 # "[[IGNORE]].") so a stray period or capital never leaks a fake user turn.
 _SENTINEL_RE = re.compile(r"\[\[\s*ignore\s*\]\]", re.IGNORECASE)
 
-
-def _rms(pcm: bytes) -> float:
-    """Loudness of one PCM chunk, 0.0–1.0 of int16 full scale. Identical formula
-    to listener.detector.rms_level, so the dashboard's near_field_level calibrates
-    against the same numbers `python -m harp.listener` shows."""
-    samples = np.frombuffer(pcm, dtype=np.int16)
-    if samples.size == 0:
-        return 0.0
-    return float(np.sqrt(np.mean((samples / 32768.0) ** 2)))
-
-
-class LoudnessGate:
-    """A loudness/proximity gate for the filter's mic: only audio at or above a
-    live threshold passes; the quiet room becomes digital silence, so the filter
-    never commits a turn on ambient noise. A short pre-roll (so a word's onset
-    isn't clipped when speech crosses the threshold) and a hangover (so a brief
-    dip mid-word doesn't chop the turn) keep it usable rather than choppy.
-
-    The threshold is read fresh every chunk via `level()`, so dashboard changes
-    take effect instantly. `level() <= 0` disables the gate (everything passes)."""
-
-    def __init__(
-        self,
-        level: Callable[[], float],
-        preroll_chunks: int = 3,
-        hangover_chunks: int = 8,
-    ) -> None:
-        self._level = level
-        self._preroll: deque[bytes] = deque(maxlen=max(1, preroll_chunks))
-        self._hangover_max = max(1, hangover_chunks)
-        self._hangover = 0
-
-    def process(self, pcm: bytes) -> bytes:
-        threshold = self._level()
-        if threshold <= 0.0:
-            return pcm  # gate disabled: pass the room through untouched
-        if _rms(pcm) >= threshold:
-            self._hangover = self._hangover_max
-            if self._preroll:  # speech onset: prepend the buffered lead-in once
-                lead_in = b"".join(self._preroll)
-                self._preroll.clear()
-                return lead_in + pcm
-            return pcm
-        if self._hangover > 0:  # trailing quiet within a word — keep passing
-            self._hangover -= 1
-            return pcm
-        self._preroll.append(pcm)   # below threshold: hold as possible lead-in
-        return bytes(len(pcm))       # ...and send silence in its place
+__all__ = ["FilterAgent", "LoudnessGate", "clean_relay"]
 
 
 def clean_relay(text: str) -> str:

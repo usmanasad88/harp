@@ -20,6 +20,8 @@ import os
 
 import numpy as np
 
+from ..config import load_whisper_prompt
+
 logger = logging.getLogger(__name__)
 
 # Bias Whisper toward romanized (Latin-script) Urdu. Raw Whisper otherwise emits
@@ -27,11 +29,9 @@ logger = logging.getLogger(__name__)
 # ("salam", "assalam", ...) could never match. This is an `initial_prompt`, so
 # it only nudges the decoder's script/style — best-effort, verify live. It holds
 # NO wake word on purpose: if Whisper ever regurgitates the prompt on silence,
-# it must not cause a false wake. Override with HARP_WHISPER_PROMPT.
-_ROMAN_URDU_PROMPT = (
-    "Yeh baat-cheet Roman Urdu aur English mein likhi gayi hai. "
-    "Aap kaisay hain? Main theek hoon, shukriya."
-)
+# it must not cause a false wake. Override with HARP_WHISPER_PROMPT. Wording
+# lives in prompts/transcription_whisper.md (see prompts/README.md).
+_ROMAN_URDU_PROMPT = load_whisper_prompt()
 
 
 class PhraseTranscriber:

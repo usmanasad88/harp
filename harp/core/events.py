@@ -127,6 +127,28 @@ class AgentSaid(Event):
     final: bool = False
 
 
+# --- memory (harp/memory: summarizer + context writer) ------------------------
+@dataclass
+class MemoryWritten(Event):
+    """The summarizer turned a finished interaction into long-term memory.
+    `person_ids` are the enrolled people it was attached to — empty means the
+    visitors were unknown and the memory went to the guestbook instead."""
+
+    person_ids: list[str]
+    summary: str
+    follow_up: str = ""
+
+
+@dataclass
+class ContextPrepared(Event):
+    """The context writer pre-computed a wake briefing (camera frame + stored
+    memories) for whoever is currently in frame, ready to hand to the live
+    session at the next open. `people` are the person_ids it covers."""
+
+    people: list[str]
+    text: str
+
+
 # --- tools (RAG / web-search bridge) -----------------------------------------
 @dataclass
 class ToolRequested(Event):
@@ -157,10 +179,11 @@ class MicMuteChanged(Event):
 
 
 @dataclass
-class FilterTuningChanged(Event):
-    """The two-agent filter's live tuning changed (a dashboard slider, or the
-    seeded startup value). Carries the full current snapshot so every open tab
-    stays in sync. See harp/config.FilterTuning and harp/voice/two_agent."""
+class VoiceTuningChanged(Event):
+    """The live noise/VAD tuning changed (a dashboard slider, or the seeded
+    startup value) for whichever agent currently owns the microphone — the
+    single-agent VoiceBridge, or the two-agent filter. Carries the full current
+    snapshot so every open tab stays in sync. See harp/config.VoiceTuning."""
 
     near_field_level: float
     vad_threshold: float

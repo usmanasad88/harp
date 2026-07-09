@@ -26,7 +26,7 @@ from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
 
-from ..config import require_key
+from ..config import load_openai_transcribe_prompt, require_key
 from .provider import (
     AgentTranscript,
     AudioOut,
@@ -47,13 +47,9 @@ _DONE = object()
 # words in harp.yaml. We steer script with a prompt rather than pinning
 # `language`, which would mis-transcribe the other language whenever the user
 # switches. See _still_prompt_prefix below for the price of priming a
-# Whisper-family model this way.
-_DEFAULT_TRANSCRIBE_PROMPT = (
-    "The speaker uses only English or Urdu. Write the whole transcript in the "
-    "Latin alphabet: leave English as English, and romanize spoken Urdu into "
-    'Latin letters (e.g. "aap kaise hain") — never Urdu (Perso-Arabic), Arabic, '
-    "or Hindi/Devanagari script."
-)
+# Whisper-family model this way. Wording lives in
+# prompts/transcription_openai.md (see prompts/README.md).
+_DEFAULT_TRANSCRIBE_PROMPT = load_openai_transcribe_prompt()
 
 
 def _transcribe_prompt() -> str:

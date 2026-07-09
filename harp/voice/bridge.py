@@ -15,7 +15,11 @@ and cancels it when the session closes. While running, the bridge:
     result to the model), ProviderError → ErrorRaised — which is how the
     dashboard sees the conversation and how the orchestrator's error/backoff
     handling gets triggered;
-  - plays the model's audio and clears the speaker on barge-in.
+  - plays the model's audio and clears the speaker on barge-in;
+  - optionally gates the mic through a `LoudnessGate` (see loudness_gate.py) —
+    the same proximity/noise gate the two-agent filter uses — so room noise
+    below `near_field_level` never reaches the model as real audio. Live-tuned
+    from the dashboard alongside the filter's copy (harp/config.VoiceTuning).
 
 Composition stays out of here: which provider, which tools, and whose
 identity callable are all injected by app.py (and by tests, which is why the
@@ -39,6 +43,7 @@ from ..core.events import (
 )
 from . import get_provider
 from .audio_io import Microphone, Speaker
+from .loudness_gate import LoudnessGate
 from .provider import (
     AgentTranscript,
     AudioOut,
@@ -63,6 +68,7 @@ class VoiceBridge:
         tool_dispatch: ToolDispatch | None = None,
         identity_context: Callable[[], str] | None = None,
         mic_gate: Callable[[], bool] | None = None,
+        near_field_level: Callable[[], float] | None = None,
         text_inbox: "asyncio.Queue[str] | None" = None,
         provider=None,
         mic_factory: Callable[[int], Microphone] = Microphone,
@@ -77,6 +83,10 @@ class VoiceBridge:
         # feed the model digital silence instead of what the room sounds like.
         # None = ungated (stream the mic straight through, the default).
         self._mic_gate = mic_gate
+        # Live loudness-gate threshold (0..1 RMS; 0/None = off). Applied AFTER
+        # the push-to-talk gate, same as the filter agent's mic pump — a
+        # callable so a dashboard change takes effect on the next chunk.
+        self._near_field_level = near_field_level
         # Text-driven mode (the two-agent responder): when a queue is given, this
         # session opens NO microphone and instead speaks in response to text turns
         # pushed onto the queue (the filter agent's relayed messages). Everything
@@ -139,8 +149,12 @@ class VoiceBridge:
         return "\n".join(part for part in parts if part).strip()
 
     async def _pump_mic(self, mic: Microphone, conn) -> None:
+        # Two gates in series, same as the filter agent's mic pump: the hard
+        # push-to-talk gate first (silence outright when not held/ungated),
+        # then the loudness gate on whatever it lets through.
+        gate = LoudnessGate(self._near_field_level or (lambda: 0.0))
         async for pcm in mic.chunks():
-            await conn.send_audio(self._mic_payload(pcm))
+            await conn.send_audio(gate.process(self._mic_payload(pcm)))
 
     def _mic_payload(self, pcm: bytes) -> bytes:
         """The audio to actually send for this chunk: the real mic audio while

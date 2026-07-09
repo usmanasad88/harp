@@ -30,6 +30,14 @@ connection also gets the current mute state once via an injected
 `get_mic_muted() -> bool` callable, sent directly (not through the bus, which
 never replays history). Either callable missing = that connection just doesn't
 get mic-mute support this run, mirroring the snapshot=None/404 camera case.
+
+A third exception, the same shape as the second: voice noise/VAD tuning
+(loudness gate, VAD threshold/silence, noise reduction — see
+harp/config.VoiceTuning). `/ws` accepts `{"type": "SetVoiceTuning", "field",
+"value"}`; the server validates + clamps via an injected `set_voice_tuning`
+callable and broadcasts `VoiceTuningChanged`. Wired by app.py in every run
+(single-agent or two-agent) — whichever agent currently owns the microphone
+picks it up.
 """
 
 from __future__ import annotations
@@ -50,7 +58,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
 
 from ..core.bus import Bus
-from ..core.events import ErrorRaised, Event, FilterTuningChanged, MicMuteChanged
+from ..core.events import ErrorRaised, Event, MicMuteChanged, VoiceTuningChanged
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -71,10 +79,10 @@ def _read_static(filename: str) -> bytes:
 SnapshotFn = Callable[[], "bytes | None"]
 SetMicMutedFn = Callable[[bool], None]
 GetMicMutedFn = Callable[[], bool]
-# Filter tuning: apply(field, value) -> the full new snapshot dict; snapshot() ->
-# the current one. Both injected by app.py (only in two-agent mode).
-SetFilterTuningFn = Callable[[str, object], dict]
-GetFilterTuningFn = Callable[[], dict]
+# Voice noise/VAD tuning: apply(field, value) -> the full new snapshot dict;
+# snapshot() -> the current one. Both injected by app.py, every run.
+SetVoiceTuningFn = Callable[[str, object], dict]
+GetVoiceTuningFn = Callable[[], dict]
 
 
 def _http_response(
@@ -141,10 +149,10 @@ async def _handle_command(
     raw: str | bytes,
     bus: Bus,
     set_mic_muted: SetMicMutedFn | None,
-    set_filter_tuning: SetFilterTuningFn | None,
+    set_voice_tuning: SetVoiceTuningFn | None,
 ) -> None:
     """Parse and act on one incoming client message. Only the two recognized
-    shapes (SetMicMuted, SetFilterTuning) do anything; everything else is
+    shapes (SetMicMuted, SetVoiceTuning) do anything; everything else is
     silently ignored — the dashboard's write surface stays deliberately narrow
     rather than a general command channel."""
     try:
@@ -155,8 +163,8 @@ async def _handle_command(
         return
     if msg.get("type") == "SetMicMuted":
         await _handle_set_mic_muted(msg, bus, set_mic_muted)
-    elif msg.get("type") == "SetFilterTuning":
-        await _handle_set_filter_tuning(msg, bus, set_filter_tuning)
+    elif msg.get("type") == "SetVoiceTuning":
+        await _handle_set_voice_tuning(msg, bus, set_voice_tuning)
 
 
 async def _handle_set_mic_muted(
@@ -181,39 +189,39 @@ async def _handle_set_mic_muted(
     await bus.publish(MicMuteChanged(muted=muted))
 
 
-async def _handle_set_filter_tuning(
-    msg: dict, bus: Bus, set_filter_tuning: SetFilterTuningFn | None
+async def _handle_set_voice_tuning(
+    msg: dict, bus: Bus, set_voice_tuning: SetVoiceTuningFn | None
 ) -> None:
-    """One filter-knob change: {type, field, value}. The setter validates and
-    clamps (config.FilterTuning.apply) and returns the full new snapshot, which
-    we broadcast as FilterTuningChanged so every open tab tracks it."""
+    """One tuning-knob change: {type, field, value}. The setter validates and
+    clamps (config.VoiceTuning.apply) and returns the full new snapshot, which
+    we broadcast as VoiceTuningChanged so every open tab tracks it."""
     field = msg.get("field")
     if not isinstance(field, str) or "value" not in msg:
         return
-    if set_filter_tuning is None:
+    if set_voice_tuning is None:
         await bus.publish(
             ErrorRaised(
-                where="dashboard.filter_tuning",
-                message="filter tuning isn't available this run (not in two-agent mode)",
+                where="dashboard.voice_tuning",
+                message="voice tuning isn't available this run",
             )
         )
         return
     try:
-        snapshot = set_filter_tuning(field, msg["value"])
+        snapshot = set_voice_tuning(field, msg["value"])
     except (ValueError, TypeError) as exc:  # unknown field / unusable value
-        await bus.publish(ErrorRaised(where="dashboard.filter_tuning", message=str(exc)))
+        await bus.publish(ErrorRaised(where="dashboard.voice_tuning", message=str(exc)))
         return
-    await bus.publish(FilterTuningChanged(**snapshot))
+    await bus.publish(VoiceTuningChanged(**snapshot))
 
 
 async def _receive_commands(
     connection: ServerConnection,
     bus: Bus,
     set_mic_muted: SetMicMutedFn | None,
-    set_filter_tuning: SetFilterTuningFn | None,
+    set_voice_tuning: SetVoiceTuningFn | None,
 ) -> None:
     async for raw in connection:
-        await _handle_command(raw, bus, set_mic_muted, set_filter_tuning)
+        await _handle_command(raw, bus, set_mic_muted, set_voice_tuning)
 
 
 async def _send_initial_mic_state(
@@ -233,19 +241,21 @@ async def _send_initial_mic_state(
         await connection.send(_encode(MicMuteChanged(muted=muted)))
 
 
-async def _send_initial_filter_tuning(
-    connection: ServerConnection, get_filter_tuning: GetFilterTuningFn | None
+async def _send_initial_voice_tuning(
+    connection: ServerConnection, get_voice_tuning: GetVoiceTuningFn | None
 ) -> None:
     """Same one-shot seeding as the mic state: a fresh tab needs the current
-    filter knobs to position its sliders. None (single-agent mode) = no panel."""
-    if get_filter_tuning is None:
+    tuning knobs to position its sliders. None = no panel this run (shouldn't
+    happen — app.py always wires this — but keeps the server standalone-safe,
+    e.g. `python -m harp.dashboard` against an empty bus)."""
+    if get_voice_tuning is None:
         return
     try:
-        snapshot = get_filter_tuning()
+        snapshot = get_voice_tuning()
     except Exception:
         return
     with contextlib.suppress(ConnectionClosed):
-        await connection.send(_encode(FilterTuningChanged(**snapshot)))
+        await connection.send(_encode(VoiceTuningChanged(**snapshot)))
 
 
 async def _stream_events(
@@ -253,15 +263,15 @@ async def _stream_events(
     bus: Bus,
     set_mic_muted: SetMicMutedFn | None,
     get_mic_muted: GetMicMutedFn | None,
-    set_filter_tuning: SetFilterTuningFn | None,
-    get_filter_tuning: GetFilterTuningFn | None,
+    set_voice_tuning: SetVoiceTuningFn | None,
+    get_voice_tuning: GetVoiceTuningFn | None,
 ) -> None:
     await _send_initial_mic_state(connection, get_mic_muted)
-    await _send_initial_filter_tuning(connection, get_filter_tuning)
+    await _send_initial_voice_tuning(connection, get_voice_tuning)
     stream = bus.subscribe()
     forward_task = asyncio.ensure_future(_forward_events(connection, stream))
     receive_task = asyncio.ensure_future(
-        _receive_commands(connection, bus, set_mic_muted, set_filter_tuning)
+        _receive_commands(connection, bus, set_mic_muted, set_voice_tuning)
     )
     try:
         # `forward_task` can sit forever awaiting the *next* bus event with
@@ -289,13 +299,13 @@ def _handler(
     bus: Bus,
     set_mic_muted: SetMicMutedFn | None,
     get_mic_muted: GetMicMutedFn | None,
-    set_filter_tuning: SetFilterTuningFn | None,
-    get_filter_tuning: GetFilterTuningFn | None,
+    set_voice_tuning: SetVoiceTuningFn | None,
+    get_voice_tuning: GetVoiceTuningFn | None,
 ):
     async def handle(connection: ServerConnection) -> None:
         await _stream_events(
             connection, bus, set_mic_muted, get_mic_muted,
-            set_filter_tuning, get_filter_tuning,
+            set_voice_tuning, get_voice_tuning,
         )
 
     return handle
@@ -308,14 +318,14 @@ def _build_server(
     snapshot: SnapshotFn | None = None,
     set_mic_muted: SetMicMutedFn | None = None,
     get_mic_muted: GetMicMutedFn | None = None,
-    set_filter_tuning: SetFilterTuningFn | None = None,
-    get_filter_tuning: GetFilterTuningFn | None = None,
+    set_voice_tuning: SetVoiceTuningFn | None = None,
+    get_voice_tuning: GetVoiceTuningFn | None = None,
 ) -> Server:
     """The `websockets` server as an async context manager. Split out from
     `serve()` so tests can bind an ephemeral port (port=0) and inspect it
     without running the forever-loop below."""
     return ws_serve(
-        _handler(bus, set_mic_muted, get_mic_muted, set_filter_tuning, get_filter_tuning),
+        _handler(bus, set_mic_muted, get_mic_muted, set_voice_tuning, get_voice_tuning),
         host,
         port,
         process_request=functools.partial(_process_request, snapshot),
@@ -329,15 +339,15 @@ async def serve(
     snapshot: SnapshotFn | None = None,
     set_mic_muted: SetMicMutedFn | None = None,
     get_mic_muted: GetMicMutedFn | None = None,
-    set_filter_tuning: SetFilterTuningFn | None = None,
-    get_filter_tuning: GetFilterTuningFn | None = None,
+    set_voice_tuning: SetVoiceTuningFn | None = None,
+    get_voice_tuning: GetVoiceTuningFn | None = None,
 ) -> None:
     """Run the dashboard server, bound to the bus, until cancelled. Observes
-    everything; the two things it can act on are the mic-mute button and (in
-    two-agent mode) the filter-tuning sliders (see the module docstring)."""
+    everything; the two things it can act on are the mic-mute button and the
+    voice noise/VAD tuning sliders (see the module docstring)."""
     async with _build_server(
         bus, host, port, snapshot, set_mic_muted, get_mic_muted,
-        set_filter_tuning, get_filter_tuning,
+        set_voice_tuning, get_voice_tuning,
     ) as server:
         print(f"HARP dashboard: http://{host}:{port}")
         await server.serve_forever()

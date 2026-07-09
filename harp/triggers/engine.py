@@ -16,15 +16,14 @@ from __future__ import annotations
 
 import logging
 
+from ..config import load_wake_context_wave
 from ..core.bus import Bus
 from ..core.events import GestureDetected, WakeRequested
 
 logger = logging.getLogger(__name__)
 
-_WAVE_CONTEXT = (
-    "(You just woke from standby because someone waved at you. Greet them "
-    "warmly and ask how you can help.)"
-)
+# Wording lives in prompts/wake_context_wave.md (see prompts/README.md).
+_WAVE_CONTEXT = load_wake_context_wave()
 
 
 class TriggerEngine:

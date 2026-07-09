@@ -26,20 +26,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from ..config import DATA_DIR
+from ..config import DATA_DIR, load_search_tool_description
 from .retriever import Retriever
 
 TOOL_NAME = "search_knowledge"
 
-_DESCRIPTION = (
-    "Search the local knowledge base for facts before answering. It contains "
-    "everything HARP has been given documents about. The documents are written "
-    "in English, so always query with concise English keywords even if the "
-    "visitor spoke Urdu. Call this BEFORE answering any factual question about "
-    "the venue, event, schedule, or anything else the documents might cover, "
-    "and base your spoken reply on what it returns. If it returns nothing "
-    "useful, say you are not sure rather than guessing."
-)
+# Wording lives in prompts/search_knowledge_tool.md (see prompts/README.md) —
+# this is what teaches the model when/how to call the tool.
+_DESCRIPTION = load_search_tool_description()
 
 _PARAMETERS = {
     "type": "object",

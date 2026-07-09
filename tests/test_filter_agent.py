@@ -273,10 +273,10 @@ async def test_mic_pump_applies_the_loudness_gate():
 
 
 def test_build_filter_config_stamps_tuning_onto_the_session():
-    from harp.config import FilterTuning, build_filter_config
+    from harp.config import VoiceTuning, build_filter_config
     from harp.voice.openai import _build_session
 
-    tuning = FilterTuning(vad_threshold=0.8, vad_silence_ms=900, noise_reduction="near_field")
+    tuning = VoiceTuning(vad_threshold=0.8, vad_silence_ms=900, noise_reduction="near_field")
     cfg = build_filter_config("openai", tuning)
     assert cfg.vad_threshold == 0.8
     assert cfg.vad_silence_ms == 900
@@ -292,9 +292,9 @@ def test_build_filter_config_stamps_tuning_onto_the_session():
 
 
 def test_build_filter_config_none_noise_reduction_is_omitted():
-    from harp.config import FilterTuning, build_filter_config
+    from harp.config import VoiceTuning, build_filter_config
     from harp.voice.openai import _build_session
 
-    cfg = build_filter_config("openai", FilterTuning(noise_reduction="none"))
+    cfg = build_filter_config("openai", VoiceTuning(noise_reduction="none"))
     assert cfg.noise_reduction is None  # "none" → unset, so the backend omits it
     assert "noise_reduction" not in _build_session(cfg)["audio"]["input"]

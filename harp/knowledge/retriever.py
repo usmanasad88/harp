@@ -35,7 +35,10 @@ _K1 = 1.5
 _B = 0.75
 
 
-def _tokenize(text: str) -> list[str]:
+def tokenize(text: str) -> list[str]:
+    """Search tokens for a query or a chunk: lowercased words minus stopwords.
+    Public because memory/tools.py ranks memory entries with the same
+    tokenization, so both search tools agree on what a 'word' is."""
     return [t for t in _TOKEN_RE.findall(text.lower()) if len(t) > 1 and t not in _STOP]
 
 
@@ -86,7 +89,7 @@ class Retriever:
 
         total_len = 0
         for chunk in self._chunks:
-            tokens = _tokenize(chunk.text)
+            tokens = tokenize(chunk.text)
             chunk.tf = Counter(tokens)
             chunk.length = len(tokens)
             total_len += chunk.length
@@ -101,7 +104,7 @@ class Retriever:
         {"source", "heading", "text", "score"} — the exact result shape the
         sandbox's search_knowledge tool returned to the model."""
         n = len(self._chunks) or 1
-        terms = set(_tokenize(query or ""))
+        terms = set(tokenize(query or ""))
         if not terms:
             return []
 

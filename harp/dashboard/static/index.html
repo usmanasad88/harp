@@ -23,8 +23,8 @@
       <button id="mute-btn" class="mute-btn" disabled>mic — connecting…</button>
     </section>
 
-    <section class="panel filter-tuning" id="filter-tuning" hidden>
-      <h2>Filter tuning <span class="dim">(two-agent noise filter)</span></h2>
+    <section class="panel voice-tuning" id="voice-tuning" hidden>
+      <h2>Voice tuning <span class="dim">(noise / VAD, whichever agent owns the mic)</span></h2>
       <div class="panel-body">
         <div class="tuning-row">
           <label for="t-near">Loudness gate <span class="dim">near-field RMS</span></label>
@@ -54,7 +54,9 @@
           <span class="badge badge-warn">next conversation · OpenAI</span>
         </div>
         <p class="dim tuning-hint">
-          Calibrate the loudness gate against your room's level with
+          Applies to whichever agent currently owns the microphone — the plain
+          single-agent session, or (when the two-agent filter is on) the filter's
+          session. Calibrate the loudness gate against your room's level with
           <code>uv run python -m harp.listener</code>. These are runtime overrides —
           copy good values into <code>harp.yaml</code> to persist them.
         </p>

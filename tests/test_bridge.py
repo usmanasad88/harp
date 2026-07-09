@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 from contextlib import asynccontextmanager
 
+import numpy as np
 import pytest
 
 from harp.core.bus import Bus
@@ -282,3 +283,66 @@ async def test_text_driven_responder_forwards_text_and_opens_no_mic():
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
+
+
+def _pcm(level: float, frames: int = 1024) -> bytes:
+    """Constant-amplitude PCM whose RMS is exactly `level` (0..1 full scale)."""
+    return np.full(frames, int(level * 32768), dtype=np.int16).tobytes()
+
+
+SILENCE = _pcm(0.0)
+
+
+async def test_mic_pump_applies_the_loudness_gate():
+    """The loudness gate isn't just wired into the two-agent filter — the plain
+    single-agent bridge's own mic pump applies it too (the point of extending
+    the dashboard's noise/VAD panel to single-agent mode: it has to actually
+    affect this session's mic, not just move sliders)."""
+    bus = Bus()
+
+    class ScriptMic:
+        def __init__(self, rate):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return None
+
+        async def chunks(self):
+            yield _pcm(0.01)   # quiet room -> should be muted
+            yield _pcm(0.30)   # loud speech -> should pass
+            while True:
+                await asyncio.sleep(3600)
+                yield b""
+
+    provider = FakeProvider([], hold_open=True)
+    bridge = VoiceBridge(
+        bus,
+        "openai",
+        make_config=_config,
+        near_field_level=lambda: 0.1,
+        provider=provider,
+        mic_factory=ScriptMic,
+        speaker_factory=FakeSpeaker,
+    )
+    task = asyncio.create_task(bridge.run())
+    await _wait_for(lambda: provider.conn is not None and len(provider.conn.sent_audio) >= 2)
+
+    assert provider.conn.sent_audio[0] == SILENCE                    # quiet muted
+    assert provider.conn.sent_audio[1] == _pcm(0.01) + _pcm(0.30)     # pre-roll + loud
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
+def test_loudness_gate_defaults_off_no_behavior_change():
+    """near_field_level=None (the default) must not alter mic audio at all —
+    existing push-to-talk/ungated behavior stays exactly as before."""
+    bus = Bus()
+    bridge, _, _ = make_bridge(bus, [])
+    from harp.voice.loudness_gate import LoudnessGate
+
+    gate = LoudnessGate(bridge._near_field_level or (lambda: 0.0))
+    assert gate.process(_pcm(0.001)) == _pcm(0.001)

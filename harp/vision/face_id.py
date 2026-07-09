@@ -95,6 +95,14 @@ class FaceID:
         the last pass); None when nobody is."""
         return self._current
 
+    def people_now(self) -> list[PersonIdentified]:
+        """Everyone in frame as of the last pass, one identity per person_id
+        (all unrecognized faces share the one "unknown" bucket — count them
+        from PresenceChanged if the number matters). Consumed by the memory
+        subsystem: the context writer's cache key and the interaction logger's
+        participant seeding."""
+        return list(self._present.values())
+
     async def run(self) -> None:
         """Watch frames slowly, forever; publish when who-is-in-frame changes."""
         while True:

@@ -77,12 +77,14 @@ class MemoryStore:
         self._save(record)
         return person_id
 
-    def add_summary(self, person_id: str, summary: str) -> None:
-        """Attach a memory summary to a person."""
+    def add_summary(self, person_id: str, summary: str, **extra: object) -> None:
+        """Attach a memory summary to a person. `extra` fields (e.g. the
+        summarizer's `follow_up` / `person_facts`) are stored alongside the
+        text; readers must treat any key beyond ts/text as optional."""
         record = self.get(person_id)
-        record.summaries.append(
-            {"ts": datetime.now().isoformat(timespec="seconds"), "text": summary}
-        )
+        entry: dict = {"ts": datetime.now().isoformat(timespec="seconds"), "text": summary}
+        entry.update({k: v for k, v in extra.items() if v})
+        record.summaries.append(entry)
         self._save(record)
 
     def get(self, person_id: str) -> PersonRecord:

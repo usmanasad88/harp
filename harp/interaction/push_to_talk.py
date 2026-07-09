@@ -33,6 +33,7 @@ import asyncio
 import logging
 from typing import Callable, Protocol
 
+from ..config import load_wake_context_push_to_talk
 from ..core.bus import Bus
 from ..core.events import StateChanged, WakeRequested
 from ..core.state import AppState
@@ -41,13 +42,9 @@ logger = logging.getLogger(__name__)
 
 # Delivered to the model at session open. Push-to-talk means the person presses,
 # THEN speaks — so tell the model to listen first rather than launch into a long
-# welcome the user would just talk over.
-_PTT_CONTEXT = (
-    "(A person started a push-to-talk conversation: they hold a button while "
-    "they speak, and are about to say something. Listen for it and answer. A "
-    "very short greeting is fine, but don't give a long welcome before they "
-    "have spoken.)"
-)
+# welcome the user would just talk over. Wording lives in
+# prompts/wake_context_push_to_talk.md (see prompts/README.md).
+_PTT_CONTEXT = load_wake_context_push_to_talk()
 
 
 class _KeyListener(Protocol):

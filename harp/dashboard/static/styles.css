@@ -194,7 +194,7 @@ main {
 .log-row .type { flex-shrink: 0; color: var(--blue); }
 .log-row .fields { color: var(--text); word-break: break-word; }
 
-/* filter tuning (two-agent noise filter) */
+/* voice tuning (noise / VAD, whichever agent owns the mic) */
 .tuning-row {
   display: flex;
   align-items: center;

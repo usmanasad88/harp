@@ -17,17 +17,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..config import load_end_session_description
 from ..core.bus import Bus
 from ..core.events import EndOfInteractionDetected
 
 TOOL_NAME = "end_session"
 
-_DESCRIPTION = (
-    "End the current conversation and put HARP back on standby. Call this when "
-    "the visitor says goodbye, says they're done, or asks you to stop or close "
-    "the session. Say a short spoken goodbye FIRST, then call this — it hangs "
-    "up immediately. Do not call it while the visitor still needs help."
-)
+# Wording lives in prompts/end_session_tool.md (see prompts/README.md) — this
+# is what teaches the model when it's appropriate to hang up on itself.
+_DESCRIPTION = load_end_session_description()
 
 _PARAMETERS = {
     "type": "object",

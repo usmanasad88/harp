@@ -1,5 +1,27 @@
 # HARP settings you can tweak. Restart HARP after editing.
 # Secrets (API keys) stay in .env — this file is for behavior knobs.
+#
+# Looking for what HARP's agents are actually TOLD (personas, tool
+# descriptions, and the "you just woke up because..." / "you're talking to
+# <name>" context sent at session open)? That text isn't here — it lives in
+# the prompts/ folder as plain markdown, so it reads and edits like the
+# instructions it is. See prompts/README.md for the full index:
+#   prompts/system_instructions.md          Laila's persona (the main responder)
+#   prompts/filter_instructions.md          the optional two-agent noise filter's persona
+#   prompts/search_knowledge_tool.md        description of the search_knowledge tool
+#   prompts/end_session_tool.md             description of the end_session tool
+#   prompts/transcription_openai.md         OpenAI input-transcriber steering prompt
+#   prompts/transcription_whisper.md        local wake-word Whisper initial_prompt
+#   prompts/identity_context*.md            face-ID "you are talking to <name>" line
+#   prompts/wake_context_wave.md            context sent when a wave wakes HARP
+#   prompts/wake_context_push_to_talk.md    context sent when push-to-talk wakes HARP
+#   prompts/wake_context_loud_sound.md      context sent when a loud sound wakes HARP
+#   prompts/wake_context_wake_word.md       context sent when a wake word wakes HARP
+#   prompts/memory_summarizer.md            turns a finished conversation into memory
+#   prompts/context_writer.md               writes the pre-computed wake briefing
+#   prompts/describe_scene.md               vision instruction for describe_scene
+#   prompts/describe_scene_tool.md          description of the describe_scene tool
+#   prompts/search_memory_tool.md           description of the search_memory tool
 
 listener:                  # the always-on wake listener (harp/listener)
   enabled: true
@@ -38,22 +60,27 @@ filter_agent:              # two-agent noise/intent filtering (harp/voice/two_ag
   # responder, which replies with voice. The responder never hears raw room audio
   # — it gets "silence, then a clean message". Costs a second live session and
   # adds ~1–2s latency; it is half-duplex (you can't interrupt HARP mid-reply).
-  # Leave false to run the normal single agent. Push-to-talk remains the fallback.
-  enabled: true
+  # Leave false to run the normal single agent (which still uses the noise/VAD
+  # knobs below on its own mic). Push-to-talk remains the fallback either way.
+  enabled: false
   provider: ""             # "" = same provider as the responder; or gemini | openai
   response_tail_seconds: 0.8  # keep the filter's mic muted this long after a reply
                               # (so it doesn't relay the tail of HARP's own voice)
-  # Noise knobs — all live-tunable on the dashboard while enabled. These are the
-  # DEFAULTS; the dashboard sliders override them at runtime (copy good values
-  # back here to persist). The filter hallucinating a message from room noise is
-  # the thing to fight.
+
+voice_tuning:               # noise/VAD tuning for whichever agent owns the mic
+  # Applies to the normal single-agent session ALWAYS, and — when filter_agent
+  # above is enabled — to the two-agent filter's session instead (the filter is
+  # then the one with a live mic). All four are live-tunable on the dashboard;
+  # these are just the DEFAULTS at boot (the dashboard sliders override them at
+  # runtime — copy good values back here to persist). A model committing or
+  # hallucinating a turn from room noise is the thing to fight.
   near_field_level: 0.0    # (1) loudness gate: only mic audio at least this loud
                            # (RMS 0..1, same scale as `python -m harp.listener`)
-                           # reaches the filter; quieter noise → silence. 0 = off.
+                           # reaches the model; quieter noise → silence. 0 = off.
                            # Takes effect instantly. Calibrate to just above your
                            # room's idle level (often ~0.02–0.08).
-  vad_threshold: 0.5       # (2) filter server-VAD: higher = needs clearer speech
-                           # to commit a turn (try 0.7–0.8 in a loud hall).
+  vad_threshold: 0.5       # (2) server-VAD: higher = needs clearer speech to
+                           # commit a turn (try 0.7–0.8 in a loud hall).
   vad_silence_ms: 500      #     trailing silence (ms) that ends a turn.
   noise_reduction: none    #     none | near_field | far_field (OpenAI; Gemini
                            #     ignores it). near_field suits a close mic.
@@ -71,6 +98,33 @@ status_voice:              # pre-recorded status announcements (harp/orchestrato
 heartbeat:
   file: .harp/heartbeat    # the agent touches this file every beat; the
   interval_seconds: 5      # watchdog reads its age to see the agent is alive
+
+memory:                    # long-term interaction memory (harp/memory)
+  # A parallel Gemini Flash Lite helper agent that (a) summarizes each finished
+  # conversation into per-person memory (unrecognized visitors land in a
+  # guestbook file instead), (b) pre-computes a "who you're about to talk to"
+  # briefing from the camera frame + stored memories, delivered to the live
+  # session at open, and (c) answers the live agent's describe_scene calls.
+  # Needs GEMINI_API_KEY in .env; without it, raw transcripts are still
+  # recorded (summarized later, once a key is present) but the helper is off.
+  enabled: true
+  model: gemini-3.1-flash-lite
+  calls_per_minute: 14     # hard cap on helper calls, shared by all three uses
+                           # (stays inside the free-tier quota)
+  context_ttl_seconds: 120 # refresh the wake briefing this often while someone
+                           # stays in frame; a change in WHO is in frame
+                           # refreshes it immediately
+
+session_log:               # per-run developer log (harp/core/session_log)
+  # Every run of the full agent writes one timeline file
+  # (.harp/logs/session-<timestamp>.jsonl): the settings the run ACTUALLY used,
+  # every event on the bus (state changes, wakes, the conversation, tool calls,
+  # detections, errors, heartbeats), and every internal log line — one JSON
+  # object per line, so a later debugging session (person or agent) can replay
+  # exactly what happened. Old run files are pruned automatically at startup.
+  enabled: true
+  dir: .harp/logs          # where run files go
+  keep_runs: 30            # newest runs kept; older files deleted at startup
 
 dashboard:                 # the dev dashboard (harp/dashboard)
   bind: network             # localhost = only this PC; network = also reachable

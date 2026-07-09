@@ -20,7 +20,14 @@ from typing import Callable
 
 import sounddevice as sd
 
-from ..config import ListenerSettings
+from ..config import (
+    FALLBACK_WAKE_CONTEXT_LOUD_SOUND,
+    FALLBACK_WAKE_CONTEXT_WAKE_WORD,
+    ListenerSettings,
+    format_prompt,
+    load_wake_context_loud_sound,
+    load_wake_context_wake_word,
+)
 from ..core.bus import Bus
 from ..core.events import PhraseHeard, StateChanged, WakeRequested
 from ..voice.audio_io import Microphone
@@ -97,12 +104,14 @@ class AlwaysOnListener:
         if decision is None:
             return
         if isinstance(decision, LoudSound):
-            await self._wake(
-                "loud sound",
-                f"(You just woke from standby because you heard a loud sound "
-                f"nearby (level {decision.level:.2f}) — someone may be trying to "
-                f"get your attention. Greet them and ask how you can help.)",
+            # Wording lives in prompts/wake_context_loud_sound.md (see
+            # prompts/README.md); `{level}` is filled in here.
+            context = format_prompt(
+                load_wake_context_loud_sound(),
+                FALLBACK_WAKE_CONTEXT_LOUD_SOUND,
+                level=f"{decision.level:.2f}",
             )
+            await self._wake("loud sound", context)
             return
         # A phrase was captured: transcribe off-thread, then match wake words.
         text = await asyncio.to_thread(self._transcribe, decision.pcm, self._rate)
@@ -113,11 +122,12 @@ class AlwaysOnListener:
             # ears picked up and why it did/didn't wake.
             await self._bus.publish(PhraseHeard(text=text, wake_word=word))
         if word:
-            await self._wake(
-                "wake word",
-                f'(You just woke from standby because someone said: "{text}". '
-                f"Respond to that naturally and offer to help.)",
+            # Wording lives in prompts/wake_context_wake_word.md (see
+            # prompts/README.md); `{text}` is the transcribed phrase.
+            context = format_prompt(
+                load_wake_context_wake_word(), FALLBACK_WAKE_CONTEXT_WAKE_WORD, text=text
             )
+            await self._wake("wake word", context)
 
     async def _wake(self, reason: str, context: str) -> None:
         logger.info("requesting wake: %s", reason)

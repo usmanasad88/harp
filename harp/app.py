@@ -19,43 +19,70 @@ word, loud sound, or wave) opens a real conversation, and the person walking
 off ends it.
 
 Status narration (orchestrator/status_voice) is wired here too: canned boot /
-connectivity / standby / error / shutdown lines, played from local clips.
+connectivity / standby / error / shutdown lines, played from local clips. So is
+the per-run session log (core/session_log): one JSONL timeline per run — a
+settings/model header, every bus event, every module's log lines — written to
+.harp/logs/ for post-hoc debugging (harp.yaml `session_log:`).
 
-Not wired yet (joins here as each is built): web-search fallback, memory's
-logger/summarizer, watchdog.
+Long-term memory (harp/memory, harp.yaml `memory:`) is wired here too: the
+per-interaction transcript logger, the summarizer that turns each finished
+conversation into per-person memory (guestbook for unknown visitors), the
+context writer that pre-computes a wake briefing (camera frame + memories)
+whenever face-ID sees someone while idle, and the live model's search_memory /
+describe_scene tools — all sharing one Gemini Flash Lite helper agent behind
+one rate limiter.
+
+Not wired yet (joins here as each is built): web-search fallback, watchdog.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import functools
 import logging
 import os
+import platform
 import socket
+import sys
 
 from . import audio_control
 from .config import (
+    FALLBACK_IDENTITY_CONTEXT,
+    FALLBACK_IDENTITY_CONTEXT_WITH_NOTES,
+    GUESTBOOK_FILE,
+    INTERACTIONS_DIR,
     PEOPLE_STORE,
     REPO_ROOT,
     STATUS_VOICE_DIR,
-    FilterTuning,
+    VoiceTuning,
     build_filter_config,
     build_session_config,
     dashboard_bind_host,
+    format_prompt,
+    load_identity_context,
+    load_identity_context_with_notes,
     load_settings,
 )
 from .core.bus import Bus
+from .core.session_log import SessionLog
 from .dashboard.server import serve as serve_dashboard
 from .interaction import session_tools
 from .interaction.end_rules import EndOfInteractionMonitor
 from .interaction.push_to_talk import PushToTalk
 from .knowledge import tools as knowledge_tools
 from .listener.listener import AlwaysOnListener
+from .memory import tools as memory_tools
+from .memory.agent import GeminiAgent, RateLimiter
+from .memory.context import ContextWriter
+from .memory.logger import InteractionLogger
 from .memory.store import MemoryStore
+from .memory.summarizer import MemorySummarizer
 from .orchestrator.orchestrator import Orchestrator
 from .orchestrator.status_voice import StatusVoice
 from .triggers.engine import TriggerEngine
+from .vision import describe as describe_tool
 from .vision.camera import Camera
 from .vision.face_id import FaceID
 from .vision.frames import jpeg_snapshot
@@ -93,10 +120,44 @@ def _internet_reachable(timeout: float = 3.0) -> bool:
         return False
 
 
+def _run_header(provider_name: str, settings) -> dict:
+    """The session log's first record: what a later debugging session needs to
+    know about this run — the knobs as they actually were (merged harp.yaml +
+    defaults), the resolved model/voice, and the machine. No secrets: API keys
+    live in .env and are never part of Settings or the session config fields
+    recorded here."""
+    session = build_session_config(provider_name)
+    return {
+        "provider": provider_name,
+        "model": session.model,
+        "voice": session.voice,
+        "settings": dataclasses.asdict(settings),
+        "platform": platform.platform(),
+        "python": sys.version.split()[0],
+    }
+
+
 async def run_app(provider_name: str = "gemini") -> None:
     """Wire the bus + all enabled subsystems + orchestrator; run until shutdown."""
     settings = load_settings()
     bus = Bus()
+
+    # The per-run developer log (harp.yaml session_log:) — opened before
+    # anything else so even the earliest warnings (a missing camera, below)
+    # land in the timeline. Its handler mirrors every module's log lines into
+    # the same file the bus events go to.
+    session_log: SessionLog | None = None
+    log_handler: logging.Handler | None = None
+    if settings.session_log.enabled:
+        session_log = SessionLog(
+            bus,
+            REPO_ROOT / settings.session_log.dir,
+            keep_runs=settings.session_log.keep_runs,
+        )
+        log_path = session_log.open(_run_header(provider_name, settings))
+        log_handler = session_log.handler()
+        logging.getLogger().addHandler(log_handler)
+        logger.info("session log: %s", log_path)
 
     # A missing/busy webcam shouldn't keep the voice side from running; the
     # camera-fed subsystems just stay offline for this run.
@@ -116,9 +177,59 @@ async def run_app(provider_name: str = "gemini") -> None:
     store = MemoryStore(PEOPLE_STORE)
     face_id = FaceID(bus, camera, store) if camera is not None else None
 
+    # A clean (overlay-free) view of the shared camera for the memory helper —
+    # the wake briefing and describe_scene should see the room, not our boxes.
+    clean_snapshot = (
+        functools.partial(jpeg_snapshot, camera) if camera is not None else lambda: None
+    )
+
+    # Long-term memory (harp/memory, harp.yaml `memory:`): the transcript
+    # logger always runs when enabled (raw records need no API); the parallel
+    # Flash Lite helper — summarizer, wake-briefing writer, describe_scene —
+    # additionally needs GEMINI_API_KEY. Without it, transcripts pile up
+    # pending and are summarized by a later run that has the key.
+    memory_agent: GeminiAgent | None = None
+    interaction_logger: InteractionLogger | None = None
+    summarizer: MemorySummarizer | None = None
+    context_writer: ContextWriter | None = None
+    if settings.memory.enabled:
+        interaction_logger = InteractionLogger(
+            bus,
+            INTERACTIONS_DIR,
+            people_now=face_id.people_now if face_id is not None else None,
+        )
+        if os.getenv("GEMINI_API_KEY"):
+            memory_agent = GeminiAgent(
+                settings.memory.model, RateLimiter(settings.memory.calls_per_minute)
+            )
+            summarizer = MemorySummarizer(
+                bus, store, memory_agent, INTERACTIONS_DIR, GUESTBOOK_FILE
+            )
+            if face_id is not None:
+                context_writer = ContextWriter(
+                    bus,
+                    memory_agent,
+                    store,
+                    people_now=face_id.people_now,
+                    frame_jpeg=clean_snapshot,
+                    ttl_seconds=settings.memory.context_ttl_seconds,
+                )
+        else:
+            logger.warning(
+                "memory: GEMINI_API_KEY not set — transcripts are recorded but "
+                "summaries/briefings/describe_scene are off this run"
+            )
+
     def identity_context() -> str:
-        """Model-facing "you are talking to <name>" line, delivered into the
-        voice session at open when face-ID currently sees someone enrolled."""
+        """Model-facing "who you're talking to" context, delivered into the
+        voice session at open. Preferred source: the memory helper's
+        pre-computed briefing (camera frame + stored memories, see
+        memory/context.py); fallback: the static face-ID identity line.
+        Wording lives in prompts/ (see prompts/README.md)."""
+        if context_writer is not None:
+            briefing = context_writer.context()
+            if briefing:
+                return briefing
         current = face_id.current if face_id is not None else None
         if current is None or not current.is_known:
             return ""
@@ -126,24 +237,45 @@ async def run_app(provider_name: str = "gemini") -> None:
             person = store.get(current.person_id)
         except KeyError:  # store edited/cleared since the sighting
             return ""
-        line = f"(Face recognition: you are talking to {person.name or current.person_id}"
+        name = person.name or current.person_id
         if person.notes:
-            line += f". Notes about them: {person.notes}"
-        return line + ".)"
+            template = load_identity_context_with_notes()
+            return format_prompt(
+                template, FALLBACK_IDENTITY_CONTEXT_WITH_NOTES, name=name, notes=person.notes
+            )
+        template = load_identity_context()
+        return format_prompt(template, FALLBACK_IDENTITY_CONTEXT, name=name)
 
     def make_session_config():
-        config = build_session_config(provider_name)
-        # Tools the model can call: knowledge retrieval + hanging up on itself.
+        # Noise/VAD tuning (voice_tuning, below) is stamped onto this session
+        # too — the single-agent bridge owns a real mic just like the filter
+        # does, and faces the same room-noise problem.
+        config = build_session_config(provider_name, tuning=voice_tuning)
+        # Tools the model can call: knowledge retrieval, hanging up on itself,
+        # and — when the memory subsystem is on — searching its own past
+        # (needs no API key) and looking through the camera (needs the helper).
         config.tools = knowledge_tools.declarations(provider_name) + session_tools.declarations(
             provider_name
         )
+        if settings.memory.enabled:
+            config.tools += memory_tools.declarations(provider_name)
+        if memory_agent is not None and camera is not None:
+            config.tools += describe_tool.declarations(provider_name)
         return config
 
     async def dispatch(name: str, arguments: dict):
         # end_session has a side effect on the orchestrator (it publishes an end
-        # event), so it needs the bus; everything else is knowledge retrieval.
+        # event), so it needs the bus; search_memory reads the store/guestbook;
+        # describe_scene asks the memory helper to look through the camera;
+        # everything else is knowledge retrieval.
         if name == session_tools.TOOL_NAME:
             return await session_tools.end_session(bus, arguments)
+        if name == memory_tools.TOOL_NAME:
+            return await memory_tools.search_memory(store, GUESTBOOK_FILE, arguments)
+        if name == describe_tool.TOOL_NAME:
+            if memory_agent is None:
+                return {"error": "the vision helper is not available this run"}
+            return await describe_tool.describe_scene(memory_agent, clean_snapshot, arguments)
         return await knowledge_tools.dispatch(name, arguments)
 
     # Push-to-talk (harp.yaml push_to_talk.enabled): arms a talk key. It runs
@@ -161,14 +293,15 @@ async def run_app(provider_name: str = "gemini") -> None:
     # bridge in single-agent mode, or the filter agent in two-agent mode.
     ptt_gate = (lambda: push_to_talk.mic_open) if push_to_talk is not None else None
 
-    # Live-tunable filter knobs (loudness gate + filter-session VAD), seeded from
-    # harp.yaml and adjustable on the dashboard while tuning against the real
-    # room. Only meaningful in two-agent mode; wired to the dashboard only then.
-    filter_tuning = FilterTuning(
-        near_field_level=settings.filter_agent.near_field_level,
-        vad_threshold=settings.filter_agent.vad_threshold,
-        vad_silence_ms=settings.filter_agent.vad_silence_ms,
-        noise_reduction=settings.filter_agent.noise_reduction,
+    # Live-tunable noise/VAD knobs (loudness gate + server-VAD + noise
+    # reduction), seeded from harp.yaml and adjustable on the dashboard while
+    # tuning against the real room. Applies to whichever agent currently owns
+    # the mic — the plain bridge below, or (in two-agent mode) the filter.
+    voice_tuning = VoiceTuning(
+        near_field_level=settings.voice_tuning.near_field_level,
+        vad_threshold=settings.voice_tuning.vad_threshold,
+        vad_silence_ms=settings.voice_tuning.vad_silence_ms,
+        noise_reduction=settings.voice_tuning.noise_reduction,
     )
 
     voice_bridge: VoiceBridge | TwoAgentBridge
@@ -183,14 +316,14 @@ async def run_app(provider_name: str = "gemini") -> None:
             make_config=make_session_config,
             # Rebuilt at each session open, so the current dashboard VAD/noise
             # knobs are stamped onto the next conversation.
-            make_filter_config=lambda: build_filter_config(filter_provider, filter_tuning),
+            make_filter_config=lambda: build_filter_config(filter_provider, voice_tuning),
             tool_dispatch=dispatch,
             identity_context=identity_context,
             filter_provider_name=filter_provider,
             response_tail_seconds=settings.filter_agent.response_tail_seconds,
             external_mic_gate=ptt_gate,
             # Read live per mic chunk, so moving the dashboard slider is instant.
-            near_field_level=lambda: filter_tuning.near_field_level,
+            near_field_level=lambda: voice_tuning.near_field_level,
         )
         print(
             f"Two-agent filter mode ON: filter={filter_provider}, "
@@ -204,6 +337,9 @@ async def run_app(provider_name: str = "gemini") -> None:
             tool_dispatch=dispatch,
             identity_context=identity_context,
             mic_gate=ptt_gate,
+            # Same loudness gate the two-agent filter uses, applied to this
+            # session's own mic since it's the one that owns it here.
+            near_field_level=lambda: voice_tuning.near_field_level,
         )
 
     # Canned status narration (boot / connectivity / standby / error / shutdown),
@@ -247,7 +383,12 @@ async def run_app(provider_name: str = "gemini") -> None:
             jpeg_snapshot, camera, overlays=(gestures.overlay, face_id.overlays)
         )
 
-    runners = {
+    runners = {}
+    if session_log is not None:
+        # First in the dict so its catch-all bus subscription is registered
+        # before the orchestrator publishes its first boot events.
+        runners["session_log"] = session_log.run()
+    runners.update({
         # The dashboard watches the bus, and (camera permitting) serves the
         # shared camera's latest frame read-only at /camera.jpg, with what the
         # gesture recognizer currently sees drawn over it.
@@ -258,10 +399,10 @@ async def run_app(provider_name: str = "gemini") -> None:
             snapshot=snapshot,
             set_mic_muted=audio_control.set_mic_muted,
             get_mic_muted=audio_control.get_mic_muted,
-            # The filter-tuning sliders are only wired in two-agent mode; in
-            # single-agent mode the dashboard shows no tuning panel.
-            set_filter_tuning=filter_tuning.apply if settings.filter_agent.enabled else None,
-            get_filter_tuning=filter_tuning.snapshot if settings.filter_agent.enabled else None,
+            # The voice-tuning sliders are wired every run — they apply to
+            # whichever agent currently owns the mic (plain bridge or filter).
+            set_voice_tuning=voice_tuning.apply,
+            get_voice_tuning=voice_tuning.snapshot,
         ),
         "orchestrator": orchestrator.run(),
         # Closes a live session when the person walks off: face-ID's presence
@@ -273,7 +414,17 @@ async def run_app(provider_name: str = "gemini") -> None:
             absence_timeout=settings.interaction.absence_timeout_seconds,
             is_present=(lambda: face_id.current is not None) if face_id is not None else None,
         ).run(),
-    }
+    })
+    if interaction_logger is not None:
+        # Records each conversation; the summarizer (below, only with a key)
+        # turns finished transcripts into per-person memory.
+        runners["interaction_log"] = interaction_logger.run()
+    if summarizer is not None:
+        runners["memory_summarizer"] = summarizer.run()
+    if context_writer is not None:
+        # Pre-computes the wake briefing whenever face-ID sees someone while
+        # idle, so identity_context() has it ready the instant a wake happens.
+        runners["context_writer"] = context_writer.run()
     if settings.listener.enabled:
         runners["listener"] = AlwaysOnListener(bus, settings.listener).run()
     if push_to_talk is not None:
@@ -306,6 +457,11 @@ async def run_app(provider_name: str = "gemini") -> None:
         await asyncio.gather(*tasks, return_exceptions=True)
         if camera is not None:
             await camera.stop()
+        if session_log is not None:
+            # Last, so teardown warnings from the lines above are still
+            # captured; anything logged after close is silently dropped.
+            logging.getLogger().removeHandler(log_handler)
+            session_log.close()
 
 
 def main() -> None:
