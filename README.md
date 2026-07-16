@@ -33,6 +33,13 @@ heard (and whether it matched a wake word), the transcript and tool calls of the
 live conversation, detected gestures, face-ID, and the camera view with a live
 box + label drawn over whatever the recognizer currently sees.
 
+The same server also serves <http://127.0.0.1:8787/user> — the **end-user
+screen**, meant for a display facing the visitor (put it full-screen with F11).
+It shows one thing at a time: "Hold the green button to talk" (EN + Urdu) while
+idle, a green full-screen "Listening" while the push-to-talk key is held,
+pulsing dots while the reply is on its way, then the agent's reply streamed in
+as it speaks — and back to the prompt when the turn is over.
+
 ### Just the voice core
 
 To smoke-test the mic → provider → speaker path on its own — no orchestrator,
@@ -145,7 +152,10 @@ while you hold a key*:
 # harp.yaml
 push_to_talk:
   enabled: true     # arms the key; HARP still boots hands-free
-  key: space        # hold this to talk (space | enter | a single character)
+  key: ctrl+shift+m # hold this to talk: a key (space, enter, m) or a '+'-combo (ctrl+shift+m)
+  exclusive: false  # true = push-to-talk ONLY: the model never hears the mic
+                    # unless the key is held — even hands-free-woken sessions
+                    # stay gated (they get silence until you hold the key)
 ```
 
 It runs *alongside* the normal hands-free wake (wake word / loud sound / wave).

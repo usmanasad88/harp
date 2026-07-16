@@ -1,5 +1,5 @@
 """Camera owns the one video device: test it against a fake cv2.VideoCapture
-so the suite doesn't need real hardware."""
+and a fake RealSense backend so the suite doesn't need real hardware."""
 
 from __future__ import annotations
 
@@ -52,10 +52,20 @@ async def _wait_until(predicate, timeout: float = 1.0) -> None:
     await asyncio.wait_for(_poll(), timeout=timeout)
 
 
+class _NoRealSense:
+    """Stands in for _RealSenseBackend on a machine with none plugged in."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        raise RuntimeError("no RealSense in tests")
+
+
 @pytest.fixture(autouse=True)
 def fake_cv2(monkeypatch):
     _FakeCapture.instances.clear()
     monkeypatch.setattr("harp.vision.camera.cv2.VideoCapture", _FakeCapture)
+    # 'auto' must fall through to the fake webcam even on a dev machine that
+    # has a real RealSense attached.
+    monkeypatch.setattr("harp.vision.camera._RealSenseBackend", _NoRealSense)
     yield _FakeCapture
     _FakeCapture.instances.clear()
 
@@ -95,6 +105,63 @@ async def test_stop_releases_the_device():
     await cam.stop()
     assert fake.released
     assert threading.active_count() >= 1  # sanity: didn't crash the process
+
+
+async def test_auto_prefers_realsense_when_detected(monkeypatch, fake_cv2):
+    class FakeRealSense:
+        name = "realsense"
+
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def read(self):
+            return np.full((2, 2, 3), 7, dtype=np.uint8)
+
+        def release(self) -> None:
+            pass
+
+    monkeypatch.setattr("harp.vision.camera._RealSenseBackend", FakeRealSense)
+    cam = Camera(device=0)
+    await cam.start()
+    try:
+        await _wait_until(lambda: cam.latest() is not None)
+        assert cam.latest()[0, 0, 0] == 7  # frames come from the RealSense...
+        assert not fake_cv2.instances      # ...and the webcam was never opened
+    finally:
+        await cam.stop()
+
+
+async def test_realsense_dropout_falls_back_to_webcam(monkeypatch, fake_cv2):
+    class FlakyRealSense:
+        name = "realsense"
+        alive = True
+
+        def __init__(self, *args, **kwargs) -> None:
+            if not FlakyRealSense.alive:
+                raise RuntimeError("unplugged")
+
+        def read(self):
+            if not FlakyRealSense.alive:
+                return None
+            return np.full((2, 2, 3), 7, dtype=np.uint8)
+
+        def release(self) -> None:
+            pass
+
+    monkeypatch.setattr("harp.vision.camera._RealSenseBackend", FlakyRealSense)
+    cam = Camera(device=0)
+    await cam.start()
+    try:
+        await _wait_until(lambda: cam.latest() is not None)
+        # Unplug: reads start failing and the RealSense won't reopen, so the
+        # reconnect loop must hand `auto` over to the webcam.
+        FlakyRealSense.alive = False
+        await _wait_until(lambda: len(fake_cv2.instances) >= 1)
+        await _wait_until(
+            lambda: cam.latest() is not None and cam.latest()[0, 0, 0] == 1
+        )
+    finally:
+        await cam.stop()
 
 
 async def test_read_failure_triggers_reconnect(fake_cv2):

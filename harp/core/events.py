@@ -127,6 +127,16 @@ class AgentSaid(Event):
     final: bool = False
 
 
+@dataclass
+class TalkKeyChanged(Event):
+    """The push-to-talk key's *effective* hold flipped. Debounce-bridged: a
+    hardware button whose firmware re-taps while pressed (see
+    interaction/push_to_talk.py) reads as ONE hold, so this never flickers
+    mid-train. The end-user page renders it (green "Listening" while held)."""
+
+    held: bool
+
+
 # --- memory (harp/memory: summarizer + context writer) ------------------------
 @dataclass
 class MemoryWritten(Event):

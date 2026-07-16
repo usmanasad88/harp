@@ -46,7 +46,31 @@ push_to_talk:              # on-demand hold-to-talk (harp/interaction/push_to_ta
   # false-wake it or bleed into its turn-taking. When that session ends, HARP
   # goes back to hands-free listening automatically.
   enabled: true
-  key: space               # hold this to talk: space | enter | a single character
+  key: ctrl+shift+m        # hold this to talk: a key (space, enter, m) or a '+'-combo (ctrl+shift+m)
+  # Push-to-talk ONLY. true = the model NEVER hears the mic unless the key is
+  # held — every session is gated, even ones woken hands-free (wave / wake
+  # word / loud sound), which with false stream normally (only press-started
+  # sessions are gated). Wakes themselves still work either way; in exclusive
+  # mode the model just gets silence until you hold the key.
+  exclusive: true
+  # The ESP32 BLE arcade button can't hold keys down — its firmware re-TAPS the
+  # whole combo ~2.5x/s while pressed (~95ms down, ~300ms up; measured with
+  # `python spike_ptt_gate.py --debug-keys`). Treat a key-up re-pressed within
+  # this many seconds as one continuous hold, so the tap train reads as holding.
+  # Must be longer than the ~0.3s tap gap; the mic closes this long after the
+  # real release. Set 0 if the talk key is a plain keyboard key you hold.
+  release_debounce_seconds: 0.7
+
+camera:                    # the shared camera (harp/vision/camera)
+  # Feeds gestures, face-ID, presence, and the memory helper's snapshots.
+  # auto      = use the Intel RealSense (color stream) if one is plugged in,
+  #             otherwise the webcam. NOTE: only one process can own a
+  #             RealSense — if you run `python -m harp.motion` alongside the
+  #             full agent, set webcam here so motion keeps the RealSense.
+  # realsense = RealSense only (camera subsystems stay off if it's missing)
+  # webcam    = plain webcam only
+  backend: auto
+  webcam_index: 0          # which webcam, when several are attached
 
 interaction:               # when a live session ends on its own (harp/interaction)
   # No face in view for this many continuous seconds ends the conversation

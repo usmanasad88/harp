@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HARP</title>
+  <link rel="stylesheet" href="/user.css" />
+</head>
+<body class="mode-offline">
+  <!-- Exactly one .screen is visible at a time, chosen by the body's mode-*
+       class (set from user.js). Kiosk page: no controls, nothing to click —
+       the talk button is the physical green button on the robot. -->
+
+  <main id="screen-idle" class="screen">
+    <p class="big">Hold the green button to talk</p>
+    <p class="big urdu" dir="rtl" lang="ur">بات کرنے کے لیے سبز بٹن دبائے رکھیں</p>
+  </main>
+
+  <main id="screen-listening" class="screen">
+    <div class="pulse"></div>
+    <p class="big">Listening</p>
+    <p class="big urdu" dir="rtl" lang="ur">سن رہا ہوں</p>
+  </main>
+
+  <main id="screen-thinking" class="screen">
+    <p class="dots" aria-label="thinking"><span>•</span><span>•</span><span>•</span></p>
+  </main>
+
+  <main id="screen-responding" class="screen">
+    <p id="response" dir="auto"></p>
+  </main>
+
+  <main id="screen-offline" class="screen">
+    <p class="big dim">Connecting…</p>
+  </main>
+
+  <script src="/user.js" defer></script>
+</body>
+</html>

@@ -193,6 +193,15 @@ when you need the "why" behind a decision.
   OS-level mic ([harp/audio_control.py](harp/audio_control.py), `pactl`,
   **Linux-only, see gotcha**). `/ws` accepts `{"type": "SetMicMuted", "muted":
   bool}`; the server publishes `MicMuteChanged` back so every tab stays in sync.
+  **End-user (kiosk) page:** the same server serves `/user` — a full-screen
+  visitor-facing view (idle prompt "Hold the green button to talk" EN+Urdu →
+  green "Listening" while the talk key is held → thinking dots → the agent's
+  reply streamed in, then back to the prompt). Driven by the same `/ws` stream:
+  `StateChanged`, `AgentSaid`, and the new `TalkKeyChanged` (push-to-talk
+  mirrors the debounce-bridged hold onto the bus, so the arcade button's tap
+  train doesn't flicker the screen). Fresh connections are seeded with the
+  current app state + hold via `get_app_state`/`get_talk_key_held` getters
+  (the bus never replays). Auto-reconnects if HARP restarts.
   Tested: [tests/test_dashboard.py](tests/test_dashboard.py).
 - **Push-to-talk (on-demand, per-session).** [interaction/push_to_talk.py](harp/interaction/push_to_talk.py)
   — with `push_to_talk.enabled: true` in harp.yaml, a talk key (default space) is
@@ -399,6 +408,12 @@ One line per milestone, newest first. Test counts are the full-suite total at th
 time. For the design rationale, bugs found, and per-chunk notes behind any of
 these, read the matching dated entry in the backup.
 
+- **2026-07-17** — End-user (kiosk) page at `/user` on the dashboard server:
+  full-screen prompt / green "Listening" (talk key held) / thinking dots /
+  streamed reply, EN+Urdu. New `TalkKeyChanged` bus event (debounce-bridged,
+  no tap-train flicker) + connection seeding of current state/hold. Verified
+  in headless Edge against a scripted bus (all modes, barge-in, Urdu RTL,
+  server-death reconnect). Suite 230.
 - **2026-07-09** — Memory **verified live** (OpenAI provider, enrolled face):
   briefing pre-computed 11 s before the wave, `gemini-3.1-flash-lite` id
   confirmed, agent-driven end_session recorded. One bug found and fixed: turn

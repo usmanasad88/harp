@@ -122,6 +122,24 @@ async def _recv_type(client, wanted, timeout=1.0):
     raise AssertionError(f"no {wanted} received")
 
 
+async def test_fresh_connection_is_seeded_with_state_and_talk_key():
+    """The end-user page (/user) renders exactly these two facts. The bus never
+    replays history, so a kiosk that connects (or reconnects) mid-conversation
+    must be handed the current state instead of assuming "idle"."""
+    bus = Bus()
+    async with _build_server(
+        bus, "127.0.0.1", 0,
+        get_app_state=lambda: "active",
+        get_talk_key_held=lambda: True,
+    ) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            state = await _recv_type(client, "StateChanged")
+            assert state["fields"] == {"old": "active", "new": "active"}
+            key = await _recv_type(client, "TalkKeyChanged")
+            assert key["fields"] == {"held": True}
+
+
 async def test_set_voice_tuning_applies_and_broadcasts():
     """This wiring is what makes the dashboard's tuning panel work in BOTH
     single-agent and two-agent mode — app.py now injects it unconditionally."""

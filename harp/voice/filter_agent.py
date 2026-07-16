@@ -45,6 +45,7 @@ from ..core.bus import Bus
 from ..core.events import ErrorRaised
 from . import get_provider
 from .audio_io import Microphone
+from .bridge import gated_mic_payload
 from .loudness_gate import LoudnessGate
 from .provider import (
     AgentTranscript,
@@ -151,10 +152,9 @@ class FilterAgent:
         """Real mic audio when the gate is open (or ungated), else same-length
         digital silence — so the room's noise, and the robot's own voice while
         it's replying, never reach the filter, but the provider VAD still sees a
-        continuous stream. Same substitution the bridge uses for push-to-talk."""
-        if self._mic_gate is None or self._mic_gate():
-            return pcm
-        return bytes(len(pcm))
+        continuous stream. Same substitution the bridge uses for push-to-talk
+        (gated_mic_payload in bridge.py)."""
+        return gated_mic_payload(pcm, self._mic_gate)
 
     async def _pump_context(self, conn) -> None:
         while True:

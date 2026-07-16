@@ -13,6 +13,14 @@ Built on `websockets` (already a dependency) rather than a separate web
 framework: `process_request` serves the static page over plain HTTP, and `/ws`
 carries the event stream, both on one port.
 
+The same server also serves `/user` — the END-USER (kiosk) page: a full-screen
+visitor-facing view driven by the same `/ws` stream, showing only "hold the
+green button to talk" / "Listening" (talk key held) / the agent's streamed
+reply. Because the bus never replays history, a fresh connection is seeded
+with the current app state and talk-key hold via two injected getters
+(`get_app_state`, `get_talk_key_held`) — same pattern as the mic-mute and
+voice-tuning seeds below; either missing just means no seed this run.
+
 One deliberate exception to "everything comes from the bus": camera frames are
 too big to be bus events (the vocabulary's "keep them small" rule), so the
 server optionally takes a `snapshot() -> jpeg bytes | None` callable — wired by
@@ -58,7 +66,14 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
 
 from ..core.bus import Bus
-from ..core.events import ErrorRaised, Event, MicMuteChanged, VoiceTuningChanged
+from ..core.events import (
+    ErrorRaised,
+    Event,
+    MicMuteChanged,
+    StateChanged,
+    TalkKeyChanged,
+    VoiceTuningChanged,
+)
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -68,6 +83,11 @@ _STATIC_FILES = {
     "/index.html": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+    # The end-user (kiosk) page: a full-screen visitor-facing view — "hold the
+    # green button to talk" / "Listening" / the agent's reply — nothing else.
+    "/user": ("user.html", "text/html; charset=utf-8"),
+    "/user.js": ("user.js", "text/javascript; charset=utf-8"),
+    "/user.css": ("user.css", "text/css; charset=utf-8"),
 }
 
 
@@ -83,6 +103,10 @@ GetMicMutedFn = Callable[[], bool]
 # snapshot() -> the current one. Both injected by app.py, every run.
 SetVoiceTuningFn = Callable[[str, object], dict]
 GetVoiceTuningFn = Callable[[], dict]
+# Seeds for the end-user page (the bus never replays history): the current app
+# state ("standby"/"active"/...) and whether the talk key is held right now.
+GetAppStateFn = Callable[[], str]
+GetTalkKeyHeldFn = Callable[[], bool]
 
 
 def _http_response(
@@ -258,6 +282,29 @@ async def _send_initial_voice_tuning(
         await connection.send(_encode(VoiceTuningChanged(**snapshot)))
 
 
+async def _send_initial_snapshots(
+    connection: ServerConnection,
+    get_app_state: GetAppStateFn | None,
+    get_talk_key_held: GetTalkKeyHeldFn | None,
+) -> None:
+    """Seed a fresh connection with the current app state (as a self-transition
+    StateChanged) and talk-key hold. The end-user page renders exactly these; a
+    kiosk page that reconnects mid-conversation must not guess. None = not
+    wired this run (standalone server, or push-to-talk disabled)."""
+    events: list[Event] = []
+    try:
+        if get_app_state is not None:
+            state = get_app_state()
+            events.append(StateChanged(old=state, new=state))
+        if get_talk_key_held is not None:
+            events.append(TalkKeyChanged(held=get_talk_key_held()))
+    except Exception:  # a getter failing shouldn't kill the handshake
+        return
+    with contextlib.suppress(ConnectionClosed):
+        for event in events:
+            await connection.send(_encode(event))
+
+
 async def _stream_events(
     connection: ServerConnection,
     bus: Bus,
@@ -265,9 +312,12 @@ async def _stream_events(
     get_mic_muted: GetMicMutedFn | None,
     set_voice_tuning: SetVoiceTuningFn | None,
     get_voice_tuning: GetVoiceTuningFn | None,
+    get_app_state: GetAppStateFn | None,
+    get_talk_key_held: GetTalkKeyHeldFn | None,
 ) -> None:
     await _send_initial_mic_state(connection, get_mic_muted)
     await _send_initial_voice_tuning(connection, get_voice_tuning)
+    await _send_initial_snapshots(connection, get_app_state, get_talk_key_held)
     stream = bus.subscribe()
     forward_task = asyncio.ensure_future(_forward_events(connection, stream))
     receive_task = asyncio.ensure_future(
@@ -301,11 +351,14 @@ def _handler(
     get_mic_muted: GetMicMutedFn | None,
     set_voice_tuning: SetVoiceTuningFn | None,
     get_voice_tuning: GetVoiceTuningFn | None,
+    get_app_state: GetAppStateFn | None,
+    get_talk_key_held: GetTalkKeyHeldFn | None,
 ):
     async def handle(connection: ServerConnection) -> None:
         await _stream_events(
             connection, bus, set_mic_muted, get_mic_muted,
             set_voice_tuning, get_voice_tuning,
+            get_app_state, get_talk_key_held,
         )
 
     return handle
@@ -320,12 +373,17 @@ def _build_server(
     get_mic_muted: GetMicMutedFn | None = None,
     set_voice_tuning: SetVoiceTuningFn | None = None,
     get_voice_tuning: GetVoiceTuningFn | None = None,
+    get_app_state: GetAppStateFn | None = None,
+    get_talk_key_held: GetTalkKeyHeldFn | None = None,
 ) -> Server:
     """The `websockets` server as an async context manager. Split out from
     `serve()` so tests can bind an ephemeral port (port=0) and inspect it
     without running the forever-loop below."""
     return ws_serve(
-        _handler(bus, set_mic_muted, get_mic_muted, set_voice_tuning, get_voice_tuning),
+        _handler(
+            bus, set_mic_muted, get_mic_muted, set_voice_tuning, get_voice_tuning,
+            get_app_state, get_talk_key_held,
+        ),
         host,
         port,
         process_request=functools.partial(_process_request, snapshot),
@@ -341,13 +399,15 @@ async def serve(
     get_mic_muted: GetMicMutedFn | None = None,
     set_voice_tuning: SetVoiceTuningFn | None = None,
     get_voice_tuning: GetVoiceTuningFn | None = None,
+    get_app_state: GetAppStateFn | None = None,
+    get_talk_key_held: GetTalkKeyHeldFn | None = None,
 ) -> None:
     """Run the dashboard server, bound to the bus, until cancelled. Observes
     everything; the two things it can act on are the mic-mute button and the
     voice noise/VAD tuning sliders (see the module docstring)."""
     async with _build_server(
         bus, host, port, snapshot, set_mic_muted, get_mic_muted,
-        set_voice_tuning, get_voice_tuning,
+        set_voice_tuning, get_voice_tuning, get_app_state, get_talk_key_held,
     ) as server:
         print(f"HARP dashboard: http://{host}:{port}")
         await server.serve_forever()

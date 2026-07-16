@@ -103,7 +103,29 @@ class PushToTalkSettings:
     Set both in harp.yaml (`push_to_talk:`)."""
 
     enabled: bool = False
-    key: str = "space"  # 'space', 'enter', or a single character
+    key: str = "space"  # one key ('space', 'enter', 'm') or a '+'-combo ('ctrl+shift+m')
+    # Push-to-talk ONLY: the model hears the mic exclusively while the key is
+    # held — every session is gated, even ones woken hands-free (wave / wake
+    # word), which otherwise stream normally.
+    exclusive: bool = False
+    # For hardware talk buttons that re-TAP the combo while pressed instead of
+    # holding it (HARP's ESP32 BLE arcade button taps ~2.5x/s): a key-up
+    # re-pressed within this window counts as one continuous hold. Must exceed
+    # the button's tap gap (~0.3s for the ESP32). 0 = off (a plain keyboard).
+    release_debounce_seconds: float = 0.0
+
+
+@dataclass
+class CameraSettings:
+    """The shared camera (harp/vision/camera) feeding gestures, face-ID, and
+    the memory helper's snapshots. `backend: auto` uses a RealSense's color
+    stream when one is plugged in, else the webcam; pin it to `webcam` when the
+    standalone motion process should keep the RealSense (one process owns it),
+    or `realsense` to refuse the webcam fallback. `webcam_index` picks among
+    several attached webcams."""
+
+    backend: str = "auto"  # auto | realsense | webcam
+    webcam_index: int = 0
 
 
 @dataclass
@@ -221,6 +243,7 @@ class SessionLogSettings:
 class Settings:
     listener: ListenerSettings = field(default_factory=ListenerSettings)
     push_to_talk: PushToTalkSettings = field(default_factory=PushToTalkSettings)
+    camera: CameraSettings = field(default_factory=CameraSettings)
     interaction: InteractionSettings = field(default_factory=InteractionSettings)
     heartbeat: HeartbeatSettings = field(default_factory=HeartbeatSettings)
     dashboard: DashboardSettings = field(default_factory=DashboardSettings)
@@ -255,6 +278,7 @@ def load_settings(path: Path = SETTINGS_FILE) -> Settings:
     return Settings(
         listener=_section(ListenerSettings, data.get("listener")),
         push_to_talk=_section(PushToTalkSettings, data.get("push_to_talk")),
+        camera=_section(CameraSettings, data.get("camera")),
         interaction=_section(InteractionSettings, data.get("interaction")),
         heartbeat=_section(HeartbeatSettings, data.get("heartbeat")),
         dashboard=_section(DashboardSettings, data.get("dashboard")),

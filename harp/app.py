@@ -14,7 +14,8 @@ session (VoiceBridge with the search_knowledge tool), wake listener, camera +
 gestures + face-ID, the wave→wake trigger engine, the interaction end-rules
 (face-ID presence: no face for a while closes the session), and the dashboard
 (host/port from harp.yaml's `dashboard:` section — localhost-only by default,
-or LAN-visible for phone/other-PC access) all sharing one bus. A wake (wake
+or LAN-visible for phone/other-PC access; it also serves the end-user kiosk
+page at /user) all sharing one bus. A wake (wake
 word, loud sound, or wave) opens a real conversation, and the person walking
 off ends it.
 
@@ -159,9 +160,12 @@ async def run_app(provider_name: str = "gemini") -> None:
         logging.getLogger().addHandler(log_handler)
         logger.info("session log: %s", log_path)
 
-    # A missing/busy webcam shouldn't keep the voice side from running; the
-    # camera-fed subsystems just stay offline for this run.
-    camera: Camera | None = Camera()
+    # A missing/busy camera shouldn't keep the voice side from running; the
+    # camera-fed subsystems just stay offline for this run. Backend per
+    # harp.yaml `camera:` — auto prefers a plugged-in RealSense over the webcam.
+    camera: Camera | None = Camera(
+        device=settings.camera.webcam_index, backend=settings.camera.backend
+    )
     try:
         await camera.start()
     except RuntimeError as exc:
@@ -284,7 +288,12 @@ async def run_app(provider_name: str = "gemini") -> None:
     # can't interfere; hands-free wakes (wave / wake word) are ungated as before.
     # `mic_open` is the gate the voice bridge consults.
     push_to_talk = (
-        PushToTalk(bus, key=settings.push_to_talk.key)
+        PushToTalk(
+            bus,
+            key=settings.push_to_talk.key,
+            exclusive=settings.push_to_talk.exclusive,
+            release_debounce_seconds=settings.push_to_talk.release_debounce_seconds,
+        )
         if settings.push_to_talk.enabled
         else None
     )
@@ -375,6 +384,7 @@ async def run_app(provider_name: str = "gemini") -> None:
             print("                (could not detect a LAN IP for other devices)")
     else:
         print(f"HARP dashboard: http://127.0.0.1:{settings.dashboard.port} (localhost only)")
+    print("HARP user screen: add /user to any URL above (full-screen visitor page)")
 
     snapshot = None
     if camera is not None:
@@ -403,6 +413,12 @@ async def run_app(provider_name: str = "gemini") -> None:
             # whichever agent currently owns the mic (plain bridge or filter).
             set_voice_tuning=voice_tuning.apply,
             get_voice_tuning=voice_tuning.snapshot,
+            # Seeds for the end-user page (/user): the bus never replays, so a
+            # fresh/reconnected kiosk gets the current state + talk-key hold.
+            get_app_state=lambda: orchestrator.state.value,
+            get_talk_key_held=(
+                (lambda: push_to_talk.held) if push_to_talk is not None else None
+            ),
         ),
         "orchestrator": orchestrator.run(),
         # Closes a live session when the person walks off: face-ID's presence
@@ -430,10 +446,16 @@ async def run_app(provider_name: str = "gemini") -> None:
     if push_to_talk is not None:
         # Runs alongside the listener: a press starts a gated session on demand,
         # and the session ending returns HARP to the hands-free listener/wave.
-        print(
-            f"Push-to-talk armed: hold {settings.push_to_talk.key.upper()} to "
-            "start a hold-to-talk session."
-        )
+        if settings.push_to_talk.exclusive:
+            print(
+                f"Push-to-talk ONLY: the model hears the mic exclusively while "
+                f"{settings.push_to_talk.key.upper()} is held."
+            )
+        else:
+            print(
+                f"Push-to-talk armed: hold {settings.push_to_talk.key.upper()} to "
+                "start a hold-to-talk session."
+            )
         runners["push_to_talk"] = push_to_talk.run()
     if gestures is not None:
         runners["gestures"] = gestures.run()

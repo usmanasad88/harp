@@ -59,6 +59,21 @@ logger = logging.getLogger(__name__)
 ToolDispatch = Callable[[str, dict], Awaitable[Any]]
 
 
+def gated_mic_payload(pcm: bytes, mic_gate: Callable[[], bool] | None) -> bytes:
+    """The audio to actually send for one mic chunk: the real audio while the
+    gate is open (or absent), else same-length digital silence.
+
+    Sending silence rather than nothing keeps a continuous stream, so the
+    provider's own voice-activity detection still sees the trailing quiet and
+    ends the turn — without any of the room's background noise ever reaching
+    it. Shared by the bridge's push-to-talk gate, the filter agent's
+    half-duplex gate, and the offline recorder (spike_ptt_gate.py), so what the
+    recorder saves is byte-identical to what a live session would send."""
+    if mic_gate is None or mic_gate():
+        return pcm
+    return bytes(len(pcm))
+
+
 class VoiceBridge:
     def __init__(
         self,
@@ -157,16 +172,9 @@ class VoiceBridge:
             await conn.send_audio(gate.process(self._mic_payload(pcm)))
 
     def _mic_payload(self, pcm: bytes) -> bytes:
-        """The audio to actually send for this chunk: the real mic audio while
-        push-to-talk is held (or ungated), else same-length digital silence.
-
-        Sending silence rather than nothing keeps a continuous stream, so the
-        provider's own voice-activity detection still sees the trailing quiet
-        and ends the turn — without any of the room's background noise ever
-        reaching it."""
-        if self._mic_gate is None or self._mic_gate():
-            return pcm
-        return bytes(len(pcm))
+        """Real mic audio while push-to-talk is held (or ungated), else
+        same-length digital silence — see gated_mic_payload."""
+        return gated_mic_payload(pcm, self._mic_gate)
 
     async def _pump_events(self, conn, speaker: Speaker) -> None:
         """Consume the session's events until its stream ends."""
