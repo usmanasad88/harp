@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-02",
+  "generated": "2026-07-19",
   "generator": "scripts/generate_status_voice.py",
   "engine": "kokoro (hexgrad/Kokoro-82M)",
   "sample_rate": 24000,
@@ -91,6 +91,38 @@
         "file": "en/mic_problem.wav",
         "voice": "af_heart",
         "duration_s": 2.65
+      }
+    },
+    "hold_green_button": {
+      "en": {
+        "text": "Please hold the green button to talk to me.",
+        "file": "en/hold_green_button.wav",
+        "voice": "af_heart",
+        "duration_s": 2.73
+      }
+    },
+    "follow_no_person": {
+      "en": {
+        "text": "No known person detected in frame.",
+        "file": "en/follow_no_person.wav",
+        "voice": "af_heart",
+        "duration_s": 2.8
+      }
+    },
+    "follow_started": {
+      "en": {
+        "text": "I'm now following you. Please ensure a safe distance from other people or obstacles.",
+        "file": "en/follow_started.wav",
+        "voice": "af_heart",
+        "duration_s": 5.3
+      }
+    },
+    "follow_stopped": {
+      "en": {
+        "text": "Follow mode stopped.",
+        "file": "en/follow_stopped.wav",
+        "voice": "af_heart",
+        "duration_s": 1.85
       }
     },
     "going_standby": {

@@ -164,6 +164,70 @@ async def test_realsense_dropout_falls_back_to_webcam(monkeypatch, fake_cv2):
         await cam.stop()
 
 
+async def test_request_switch_reopens_with_new_backend_and_releases_old(monkeypatch, fake_cv2):
+    """The dashboard camera dropdown calls this to move the shared camera to a
+    different source at runtime — must actually swap backends and release the
+    old device, not just remember the new choice."""
+
+    class FakeRealSense:
+        name = "realsense"
+
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def read(self):
+            return np.full((2, 2, 3), 7, dtype=np.uint8)
+
+        def release(self) -> None:
+            pass
+
+    monkeypatch.setattr("harp.vision.camera._RealSenseBackend", FakeRealSense)
+    cam = Camera(device=0, backend="webcam")
+    await cam.start()
+    try:
+        await _wait_until(lambda: cam.latest() is not None)
+        assert cam.latest()[0, 0, 0] == 1  # webcam frames first
+        old_webcam = _FakeCapture.instances[0]
+
+        cam.request_switch("realsense")
+        await _wait_until(lambda: cam.latest() is not None and cam.latest()[0, 0, 0] == 7)
+        assert cam.active_backend == "realsense"
+        assert old_webcam.released
+    finally:
+        await cam.stop()
+
+
+async def test_request_switch_to_a_different_webcam_device(fake_cv2):
+    """Switching between "laptop webcam" and "USB webcam" is the same backend
+    with a different device index — must reopen with the new index, not just
+    keep reading the old device."""
+    cam = Camera(device=0, backend="webcam")
+    await cam.start()
+    try:
+        await _wait_until(lambda: cam.latest() is not None)
+        assert fake_cv2.instances[0].device == 0
+
+        cam.request_switch("webcam", device=5)
+        await _wait_until(lambda: len(fake_cv2.instances) == 2)
+        assert fake_cv2.instances[1].device == 5
+        assert fake_cv2.instances[0].released
+    finally:
+        await cam.stop()
+
+
+async def test_request_switch_with_unknown_backend_is_ignored(fake_cv2):
+    cam = Camera(device=0, backend="webcam")
+    await cam.start()
+    try:
+        await _wait_until(lambda: cam.latest() is not None)
+        cam.request_switch("bogus")
+        await asyncio.sleep(0.05)  # give the capture thread a chance to (not) act
+        assert len(fake_cv2.instances) == 1
+        assert cam.active_backend == "webcam"
+    finally:
+        await cam.stop()
+
+
 async def test_read_failure_triggers_reconnect(fake_cv2):
     cam = Camera(device=0)
     await cam.start()

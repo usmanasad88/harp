@@ -21,6 +21,7 @@
   <main>
     <section class="mute-bar">
       <button id="mute-btn" class="mute-btn" disabled>mic — connecting…</button>
+      <button id="move-btn" class="mute-btn" hidden>move around</button>
     </section>
 
     <section class="panel voice-tuning" id="voice-tuning" hidden>
@@ -91,8 +92,17 @@
 
     <section class="grid-2">
       <div class="panel">
-        <h2>Camera</h2>
+        <h2>Camera <span class="dim" id="camera-source-badge"></span></h2>
         <div class="panel-body">
+          <div class="camera-source-row" id="camera-source-row" hidden>
+            <label for="camera-source-select">Source</label>
+            <select id="camera-source-select">
+              <option value="auto">Auto (RealSense preferred)</option>
+              <option value="realsense">RealSense</option>
+              <option value="webcam">Laptop webcam</option>
+              <option value="usb_webcam">USB webcam</option>
+            </select>
+          </div>
           <p class="empty" id="camera-empty">Waiting for camera…</p>
           <img id="camera-img" class="camera-img" alt="camera feed" hidden />
         </div>

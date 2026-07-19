@@ -46,6 +46,22 @@ harp/config.VoiceTuning). `/ws` accepts `{"type": "SetVoiceTuning", "field",
 callable and broadcasts `VoiceTuningChanged`. Wired by app.py in every run
 (single-agent or two-agent) — whichever agent currently owns the microphone
 picks it up.
+
+A fourth exception, the same shape again: the camera-source dropdown (see
+harp/config.CameraSourceState). `/ws` accepts `{"type": "SetCameraSource",
+"source"}`; the server validates via an injected `set_camera_source` callable
+and broadcasts `CameraSourceChanged`. Wired by app.py only when a camera is
+attached this run — mirrors the mic-mute/snapshot=None pattern for "not
+available this run".
+
+A fifth exception, with one twist: the "move around" patrol button
+(harp/motion/controller). `/ws` accepts `{"type": "SetMoveAround", "active"}`
+and awaits an injected ASYNC `set_move_around(active)` callable. Unlike the
+others, the confirmation event is NOT published here: the controller owns
+MoveAroundChanged (it must also announce the bounded lap finishing on its
+own, and starts arriving via the agent's move_around tool), so this handler
+only relays the request and surfaces failures as ErrorRaised. Wired by app.py
+only when harp.yaml `motion.enabled` — None = no button this run.
 """
 
 from __future__ import annotations
@@ -56,8 +72,9 @@ import dataclasses
 import functools
 import json
 import time
+import webbrowser
 from pathlib import Path
-from typing import AsyncGenerator, Callable
+from typing import AsyncGenerator, Awaitable, Callable
 
 from websockets.asyncio.server import Server, ServerConnection
 from websockets.asyncio.server import serve as ws_serve
@@ -67,9 +84,11 @@ from websockets.http11 import Request, Response
 
 from ..core.bus import Bus
 from ..core.events import (
+    CameraSourceChanged,
     ErrorRaised,
     Event,
     MicMuteChanged,
+    MoveAroundChanged,
     StateChanged,
     TalkKeyChanged,
     VoiceTuningChanged,
@@ -103,6 +122,17 @@ GetMicMutedFn = Callable[[], bool]
 # snapshot() -> the current one. Both injected by app.py, every run.
 SetVoiceTuningFn = Callable[[str, object], dict]
 GetVoiceTuningFn = Callable[[], dict]
+# Camera source (auto/realsense/webcam/usb_webcam): set(source) -> {"source",
+# "backend"}; get() -> the same shape. Both injected by app.py only when a
+# camera is attached this run (None = the dropdown isn't available).
+SetCameraSourceFn = Callable[[str], dict]
+GetCameraSourceFn = Callable[[], dict]
+# The "move around" patrol (harp/motion/controller): set(active) is ASYNC —
+# starting opens serial ports and spawns the patrol task — and returns the
+# controller's result dict ({"ok"/"error", "note"}); get() -> {"active": bool}
+# for seeding. Injected by app.py only when harp.yaml `motion.enabled`.
+SetMoveAroundFn = Callable[[bool], Awaitable[dict]]
+GetMoveAroundFn = Callable[[], dict]
 # Seeds for the end-user page (the bus never replays history): the current app
 # state ("standby"/"active"/...) and whether the talk key is held right now.
 GetAppStateFn = Callable[[], str]
@@ -174,11 +204,13 @@ async def _handle_command(
     bus: Bus,
     set_mic_muted: SetMicMutedFn | None,
     set_voice_tuning: SetVoiceTuningFn | None,
+    set_camera_source: SetCameraSourceFn | None,
+    set_move_around: SetMoveAroundFn | None,
 ) -> None:
-    """Parse and act on one incoming client message. Only the two recognized
-    shapes (SetMicMuted, SetVoiceTuning) do anything; everything else is
-    silently ignored — the dashboard's write surface stays deliberately narrow
-    rather than a general command channel."""
+    """Parse and act on one incoming client message. Only the recognized
+    shapes (SetMicMuted, SetVoiceTuning, SetCameraSource, SetMoveAround) do
+    anything; everything else is silently ignored — the dashboard's write
+    surface stays deliberately narrow rather than a general command channel."""
     try:
         msg = json.loads(raw)
     except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
@@ -189,6 +221,10 @@ async def _handle_command(
         await _handle_set_mic_muted(msg, bus, set_mic_muted)
     elif msg.get("type") == "SetVoiceTuning":
         await _handle_set_voice_tuning(msg, bus, set_voice_tuning)
+    elif msg.get("type") == "SetCameraSource":
+        await _handle_set_camera_source(msg, bus, set_camera_source)
+    elif msg.get("type") == "SetMoveAround":
+        await _handle_set_move_around(msg, bus, set_move_around)
 
 
 async def _handle_set_mic_muted(
@@ -238,14 +274,73 @@ async def _handle_set_voice_tuning(
     await bus.publish(VoiceTuningChanged(**snapshot))
 
 
+async def _handle_set_camera_source(
+    msg: dict, bus: Bus, set_camera_source: SetCameraSourceFn | None
+) -> None:
+    """One camera-source change: {type, source}. The setter (app.py) applies
+    it to the shared Camera and returns {"source", "backend"}, which we
+    broadcast as CameraSourceChanged so every open tab tracks the selection —
+    same confirmation-based shape as mic-mute and voice tuning."""
+    source = msg.get("source")
+    if not isinstance(source, str):
+        return
+    if set_camera_source is None:
+        await bus.publish(
+            ErrorRaised(
+                where="dashboard.camera_source",
+                message="camera source isn't available this run",
+            )
+        )
+        return
+    try:
+        result = set_camera_source(source)
+    except (ValueError, TypeError) as exc:  # unknown source
+        await bus.publish(ErrorRaised(where="dashboard.camera_source", message=str(exc)))
+        return
+    await bus.publish(CameraSourceChanged(**result))
+
+
+async def _handle_set_move_around(
+    msg: dict, bus: Bus, set_move_around: SetMoveAroundFn | None
+) -> None:
+    """One patrol toggle: {type, active}. The confirmation event is NOT
+    published here — the MoveAroundController owns MoveAroundChanged (it also
+    announces the lap finishing on its own, and starts arriving via the agent
+    tool), so this handler only awaits the controller and surfaces failures."""
+    active = msg.get("active")
+    if not isinstance(active, bool):
+        return
+    if set_move_around is None:
+        await bus.publish(
+            ErrorRaised(
+                where="dashboard.move_around",
+                message="move around isn't available this run",
+            )
+        )
+        return
+    try:
+        result = await set_move_around(active)
+    except Exception as exc:  # a controller crash mustn't drop the connection
+        await bus.publish(ErrorRaised(where="dashboard.move_around", message=str(exc)))
+        return
+    if isinstance(result, dict) and result.get("error"):
+        await bus.publish(
+            ErrorRaised(where="dashboard.move_around", message=str(result["error"]))
+        )
+
+
 async def _receive_commands(
     connection: ServerConnection,
     bus: Bus,
     set_mic_muted: SetMicMutedFn | None,
     set_voice_tuning: SetVoiceTuningFn | None,
+    set_camera_source: SetCameraSourceFn | None,
+    set_move_around: SetMoveAroundFn | None,
 ) -> None:
     async for raw in connection:
-        await _handle_command(raw, bus, set_mic_muted, set_voice_tuning)
+        await _handle_command(
+            raw, bus, set_mic_muted, set_voice_tuning, set_camera_source, set_move_around
+        )
 
 
 async def _send_initial_mic_state(
@@ -282,6 +377,38 @@ async def _send_initial_voice_tuning(
         await connection.send(_encode(VoiceTuningChanged(**snapshot)))
 
 
+async def _send_initial_camera_source(
+    connection: ServerConnection, get_camera_source: GetCameraSourceFn | None
+) -> None:
+    """Same one-shot seeding as mic state/voice tuning: a fresh tab needs the
+    current selection to position the dropdown. None = no camera this run."""
+    if get_camera_source is None:
+        return
+    try:
+        snapshot = get_camera_source()
+    except Exception:
+        return
+    with contextlib.suppress(ConnectionClosed):
+        await connection.send(_encode(CameraSourceChanged(**snapshot)))
+
+
+async def _send_initial_move_around(
+    connection: ServerConnection, get_move_around: GetMoveAroundFn | None
+) -> None:
+    """Same one-shot seeding as mic state/voice tuning/camera source: a fresh
+    tab needs to know whether a patrol is running to label its button (the
+    page keeps the button hidden until this arrives). None = motion disabled
+    this run — the button never appears."""
+    if get_move_around is None:
+        return
+    try:
+        snapshot = get_move_around()
+    except Exception:
+        return
+    with contextlib.suppress(ConnectionClosed):
+        await connection.send(_encode(MoveAroundChanged(**snapshot)))
+
+
 async def _send_initial_snapshots(
     connection: ServerConnection,
     get_app_state: GetAppStateFn | None,
@@ -312,16 +439,25 @@ async def _stream_events(
     get_mic_muted: GetMicMutedFn | None,
     set_voice_tuning: SetVoiceTuningFn | None,
     get_voice_tuning: GetVoiceTuningFn | None,
+    set_camera_source: SetCameraSourceFn | None,
+    get_camera_source: GetCameraSourceFn | None,
+    set_move_around: SetMoveAroundFn | None,
+    get_move_around: GetMoveAroundFn | None,
     get_app_state: GetAppStateFn | None,
     get_talk_key_held: GetTalkKeyHeldFn | None,
 ) -> None:
     await _send_initial_mic_state(connection, get_mic_muted)
     await _send_initial_voice_tuning(connection, get_voice_tuning)
+    await _send_initial_camera_source(connection, get_camera_source)
+    await _send_initial_move_around(connection, get_move_around)
     await _send_initial_snapshots(connection, get_app_state, get_talk_key_held)
     stream = bus.subscribe()
     forward_task = asyncio.ensure_future(_forward_events(connection, stream))
     receive_task = asyncio.ensure_future(
-        _receive_commands(connection, bus, set_mic_muted, set_voice_tuning)
+        _receive_commands(
+            connection, bus, set_mic_muted, set_voice_tuning, set_camera_source,
+            set_move_around,
+        )
     )
     try:
         # `forward_task` can sit forever awaiting the *next* bus event with
@@ -351,6 +487,10 @@ def _handler(
     get_mic_muted: GetMicMutedFn | None,
     set_voice_tuning: SetVoiceTuningFn | None,
     get_voice_tuning: GetVoiceTuningFn | None,
+    set_camera_source: SetCameraSourceFn | None,
+    get_camera_source: GetCameraSourceFn | None,
+    set_move_around: SetMoveAroundFn | None,
+    get_move_around: GetMoveAroundFn | None,
     get_app_state: GetAppStateFn | None,
     get_talk_key_held: GetTalkKeyHeldFn | None,
 ):
@@ -358,6 +498,8 @@ def _handler(
         await _stream_events(
             connection, bus, set_mic_muted, get_mic_muted,
             set_voice_tuning, get_voice_tuning,
+            set_camera_source, get_camera_source,
+            set_move_around, get_move_around,
             get_app_state, get_talk_key_held,
         )
 
@@ -373,6 +515,10 @@ def _build_server(
     get_mic_muted: GetMicMutedFn | None = None,
     set_voice_tuning: SetVoiceTuningFn | None = None,
     get_voice_tuning: GetVoiceTuningFn | None = None,
+    set_camera_source: SetCameraSourceFn | None = None,
+    get_camera_source: GetCameraSourceFn | None = None,
+    set_move_around: SetMoveAroundFn | None = None,
+    get_move_around: GetMoveAroundFn | None = None,
     get_app_state: GetAppStateFn | None = None,
     get_talk_key_held: GetTalkKeyHeldFn | None = None,
 ) -> Server:
@@ -382,6 +528,8 @@ def _build_server(
     return ws_serve(
         _handler(
             bus, set_mic_muted, get_mic_muted, set_voice_tuning, get_voice_tuning,
+            set_camera_source, get_camera_source,
+            set_move_around, get_move_around,
             get_app_state, get_talk_key_held,
         ),
         host,
@@ -399,15 +547,31 @@ async def serve(
     get_mic_muted: GetMicMutedFn | None = None,
     set_voice_tuning: SetVoiceTuningFn | None = None,
     get_voice_tuning: GetVoiceTuningFn | None = None,
+    set_camera_source: SetCameraSourceFn | None = None,
+    get_camera_source: GetCameraSourceFn | None = None,
+    set_move_around: SetMoveAroundFn | None = None,
+    get_move_around: GetMoveAroundFn | None = None,
     get_app_state: GetAppStateFn | None = None,
     get_talk_key_held: GetTalkKeyHeldFn | None = None,
+    open_browser: bool = False,
 ) -> None:
     """Run the dashboard server, bound to the bus, until cancelled. Observes
-    everything; the two things it can act on are the mic-mute button and the
-    voice noise/VAD tuning sliders (see the module docstring)."""
+    everything; the things it can act on are the mic-mute button, the voice
+    noise/VAD tuning sliders, the camera-source dropdown, and the move-around
+    patrol button (see the module docstring). `open_browser` pops the
+    dashboard open once the socket is actually bound — opt-in so the
+    standalone `python -m harp.dashboard` and tests importing this module
+    don't get a surprise browser tab."""
     async with _build_server(
         bus, host, port, snapshot, set_mic_muted, get_mic_muted,
-        set_voice_tuning, get_voice_tuning, get_app_state, get_talk_key_held,
+        set_voice_tuning, get_voice_tuning, set_camera_source, get_camera_source,
+        set_move_around, get_move_around,
+        get_app_state, get_talk_key_held,
     ) as server:
         print(f"HARP dashboard: http://{host}:{port}")
+        if open_browser:
+            # host may be 0.0.0.0 (LAN-visible bind) — that's not a browser-
+            # openable address, so always open the loopback URL, which works
+            # regardless of bind mode since the server listens on all of them.
+            webbrowser.open(f"http://127.0.0.1:{port}")
         await server.serve_forever()

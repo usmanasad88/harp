@@ -1,0 +1,646 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{float}
+\usepackage{parskip}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+\usepackage{tikz}
+
+\graphicspath{{figures/}}
+\captionsetup{font=small,labelfont=bf,width=0.9\textwidth}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\begin{document}
+
+\begin{tikzpicture}[remember picture,overlay]
+	\node[xshift=15 mm,yshift=-30 mm,anchor=north west] at (current page.north west){%
+		\includegraphics[width=24mm]{nust}};
+\end{tikzpicture}
+
+\begin{tikzpicture}[remember picture,overlay]
+	\node[xshift=-15 mm,yshift=-30 mm,anchor=north east] at (current page.north east){%
+		\includegraphics[width=24mm]{ceme}};
+\end{tikzpicture}
+
+\begin{center}
+{\LARGE\bfseries Project Completion Report}\\[0.8em]
+{\Large\bfseries Humanoid Assistive Robotic Platform (HARP)}\\[1.5em]
+{\large National University of Sciences and Technology (NUST)}\\[0.3em]
+College of Electrical and Mechanical Engineering, Rawalpindi\\[0.3em]
+NUST Flagship Project No. FSP-23-13
+\end{center}
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\section{Project Information}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}L{5cm}L{9cm}@{}}
+\toprule
+\textbf{Item} & \textbf{Detail} \\
+\midrule
+Title of Project & Humanoid Assistive Robotic Platform (HARP) \\
+Date of Approval & 17 November 2023 \\
+Approved Duration & 12 months (after extensions: 24 months and 29 days) \\
+Date of Completion & 30 December 2025 \\
+Funding Agency and Scheme & NUST Flagship \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Project Budget}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Item} & \textbf{Amount (PKR)} \\
+\midrule
+Approved Amount & 1,000,000 \\
+Amount Received & 1,000,000 \\
+Amount Expended & 920,736 \\
+Amount in Balance & 79,264 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Project Team}
+
+\textbf{Principal Investigator}\\
+Dr. Kanwal Naveed, College of Electrical and Mechanical Engineering (CEME), NUST\\
+Email: kanwalnaveed@ceme.nust.edu.pk
+
+\textbf{Co-Principal Investigators}\\
+Dr. Tahir Habib Nawaz, CEME, NUST (tahir.nawaz@ceme.nust.edu.pk)\\
+Sen. Lec. Usman Asad, CEME, NUST (usman.asad@ceme.nust.edu.pk)
+
+\textbf{Other Team Members}\\
+Dr. Muhammad Moazam Fraz, School of Electrical Engineering and Computer Science (SEECS), NUST. Development of Artificial Intelligence and Machine Learning modules.\\
+Dr. Anas Bin Aqeel, CEME, NUST. Co-supervision of final year design projects on mechanical design and system integration.
+
+\textbf{Research Assistants}\\
+Kashaan Ansari (7 months) and Ahyan Ahmed (5 months), hired under the project HR budget. Details are given in Section~\ref{sec:ras}.
+
+\textbf{Undergraduate Teams}\\
+Three final year design project (FYDP) teams of the Department of Mechatronics Engineering, CEME, worked on the platform across three academic cycles (2023-24, 2024-25, and 2025-26), together with five undergraduate interns. Details are given in Section~\ref{sec:supervised}.
+
+\section{Equipment and Materials Purchased}
+
+All items below were purchased under the consumables head and are installed on the HARP platform or were consumed during its construction. Permanent items are held in the Robot Design and Development Lab (RDDL), NCRA.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}cL{6.5cm}rL{4.5cm}@{}}
+\toprule
+\textbf{S. No} & \textbf{Item} & \textbf{Cost (PKR)} & \textbf{Location / Status} \\
+\midrule
+1 & NVIDIA Jetson Nano Developer Kit & 90,000 & RDDL, NCRA \\
+2 & Intel RealSense Depth Camera D435i & 163,390 & RDDL, NCRA \\
+3 & Samsung Galaxy Tab A7 Lite & 78,000 & RDDL, NCRA \\
+4 & 7 inch HDMI capacitive touch LCD screen (Raspberry Pi / Jetson Nano) & 16,750 & RDDL, NCRA \\
+5 & Samsung 10,000 mAh power bank & 11,000 & RDDL, NCRA \\
+6 & Servo gimbal, 2 DoF rotating head base & 15,376 & Installed on HARP \\
+7 & Mechanical 3D printing material (PETG filament, aluminum sheets, 3K carbon fiber cloth, epoxy resin) & 139,665 & Consumed for robot construction \\
+8 & Aluminum sheets for robot structure & 25,000 & Consumed for robot construction \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Introduction}
+
+\subsection{Background and Motivation}
+
+Robotics is steadily moving out of factories and into everyday spaces. Advances in artificial intelligence over the past decade, particularly in computer vision, speech processing, and large language models, mean that a machine can now recognize who is standing in front of it, understand what is being said, and reply in fluent natural language. Intelligent robots therefore give us a practical chance to deploy AI in daily life, especially as facilitators. Robots of this kind are candidates for many service tasks, including cleaning, delivery, guidance, and reception duties. In the research literature they are grouped as socially interactive robots (SIR), whose primary purpose is communication with people, and socially assistive robots (SAR), which help people through social interaction rather than physical force.
+
+The demand for such robots is driven by demographics and workforce economics. Populations are aging across much of the world, and the World Health Organization projects a shortfall of roughly ten million health workers globally by 2030. Hospitals, elderly care facilities, and rehabilitation centers increasingly cannot staff round-the-clock personal attention, and human caregivers alone are often not enough to meet the rising demand for personalized care. The pressure is felt sharply in Pakistan, where large public hospitals handle very high patient loads and where reception duties, inquiry counters, and way-finding assistance consume scarce staff time that could otherwise be spent on care itself. The COVID-19 pandemic added a further lesson: services that can be delivered without physical contact have real public health value.
+
+At the same time, most existing assistive platforms have real limitations. Commercial social robots such as SoftBank's Pepper demonstrated the appeal of a friendly humanoid in banks and shops, but they are expensive to buy and maintain, closed to modification, and dependent on their vendor. Research platforms, for their part, have historically been strong in one dimension and weak in the others: many cannot perceive complex human behavior, cannot hold a natural spoken conversation, and cannot move safely on their own. Many also depend on expensive, power-hungry active sensors such as LiDAR (a laser scanner that measures distance by bouncing light off the surroundings), and are built as one-off, non-modular systems that are hard to extend, so each new capability requires rework rather than simple addition.
+
+The humanoid form itself is not cosmetic. People instinctively treat a robot with a face, eyes, and human-like height as a social counterpart: they speak to it naturally, follow its gaze, and engage with it more willingly. Long-term studies of robot receptionists have found that visitors interact longer and return more often when the robot shows personality and expression. A platform intended for reception and care settings therefore benefits from an expressive face, eye contact, and natural proportions as functional parts of the interface, not merely styling.
+
+HARP was conceived against this background. The goal was a low-cost, modular, and scalable humanoid platform that can see, listen, talk, and move in real indoor service environments, built largely from commodity hardware and open software. Three choices define the approach. First, edge computing: run perception on small onboard computers and reserve cloud services for what genuinely needs them, keeping the robot responsive and affordable. Second, passive sensing: navigate with cameras instead of LiDAR, trading costly hardware for capable software. Third, bilingual interaction: serve users in both English and Urdu, which is essential for inclusive deployment in Pakistan. The project was also deliberately structured as a capacity-building vehicle, with successive final year student teams and research assistants extending the platform, so that the engineering skills it demands accumulate at NUST alongside the robot itself.
+
+\subsection{Literature Review}
+
+The design of HARP drew on several distinct bodies of work: receptionist and social robots, omnidirectional mobility, camera-based navigation, emotion and behavior recognition, language models as robot ``brains'', connected robotics, and studies of how assistive robots are received in healthcare. The findings that shaped the project are summarized below.
+
+\subsubsection{Receptionist and Social Robots}
+
+The idea of a robot at the front desk has a two-decade history. Carnegie Mellon University's ``roboceptionist'' Valerie (2003) placed a conversational character, displayed on a screen at a lobby booth, in continuous public service. Long-term observation of its use found that most visitor interactions were brief, but that personality and a continuing storyline kept people coming back, an early sign that character matters as much as function. ASKA, deployed at the Nara Institute of Science and Technology in Japan in 2003, combined visual recognition, speech recognition, voice response, and web retrieval, answering questions about university matters with synthesized speech, hand gestures, and head movement. Wakamaru, introduced by Mitsubishi in 2005, was an early attempt at a commercial companion robot, working as a receptionist and domestic assistant. iCub (2014) demonstrated guiding visitors to locations on a university map. SoftBank's Pepper (2014), with its omnidirectional wheeled base, chest-mounted tablet, and expressive gestures, became the most widely deployed social robot in banks, shops, and showrooms, and served as the direct design inspiration for HARP's mechanical work. PAL Robotics' ARI is a more recent platform aimed at reception and research use.
+
+Closest in spirit to HARP is DEVI (2019), an open-source receptionist robot built deliberately as a low-cost, modular alternative to commercial systems. DEVI used a necklace of five time-of-flight proximity sensors to notice people approaching from any direction, triggered face recognition only when someone was actually near (reaching 97.7 percent recognition accuracy), and combined a chatbot with a touch and voice interface. Its reported weakness is telling: the chatbot answered with 91.7 percent accuracy in text mode, but accuracy fell to between 50 and 77 percent on voice input because of ambient noise. A similar college front-office robot (2020) added personalization, remembering returning visitors by name, and reported the same noise problem. Two lessons recur across these systems and directly influenced HARP: a modular architecture is what allows a small team to keep improving a robot over several years, and speech understanding in noisy lobbies is a persistent weak point, which HARP's later cloud-based audio pipeline was specifically chosen to overcome.
+
+\subsubsection{Omnidirectional Mobile Bases}
+
+How a robot moves shapes how people experience it. Comparative studies of wheel types (conventional, caster, universal, omni, and mecanum wheels) conclude that mecanum wheels, which carry small rollers mounted at 45 degrees around the rim, offer the best maneuverability for indoor robots, at the cost of a more complex design and somewhat lower load capacity. A robot on mecanum wheels is holonomic: it can move in any direction, including directly sideways, without turning first, which is faster, safer, and more natural in tight, crowded interiors. The literature documents a range of such designs, from three-wheel omnidirectional competition robots with closed-loop wheel speed control, to ball-wheel vehicles that achieved dead-reckoning position errors under a millimeter over two meters, to multi-layer service robots that separate drive electronics, payload, and sensors into stacked tiers. Pepper itself uses three omni wheels in a triangular layout. For HARP's second-generation base, a four mecanum wheel configuration was preferred over Pepper's three-wheel arrangement for greater stability and simpler manufacture.
+
+\subsubsection{Vision-Based Navigation and SLAM}
+
+To navigate, a robot must solve two problems at once: build a map of an unknown space and work out where it is within that map. This is Simultaneous Localization and Mapping (SLAM). Many commercial platforms solve it with LiDAR, but surveys of visual SLAM show that cameras alone, particularly RGB-D cameras that capture color and depth together, are now sufficient for reliable indoor mapping at a fraction of the cost. RTAB-Map is the established real-time system for RGB-D mapping and was adopted for HARP. ORB-SLAM3 adds fusion with inertial sensors for accurate localization in larger, more cluttered spaces, and DynaSLAM addresses the next frontier by detecting and ignoring moving people so that the map is not corrupted by them; both were studied in simulation as HARP's upgrade path. On top of the map, path planning has a mature toolbox: A* finds short paths efficiently in a static map, D* Lite and LPA* replan quickly when the map changes, and local planners such as the Dynamic Window Approach and the Timed Elastic Band adjust the trajectory moment to moment around obstacles, with model predictive control and reinforcement learning approaches at the experimental end. A newer research thread, human-aware navigation, plans paths that respect personal space so that the robot's motion feels polite rather than merely collision-free. HARP's deployed stack (RTAB-Map, a derived occupancy grid, and A*) sits deliberately at the proven end of this spectrum, with the dynamic methods identified as future work.
+
+\subsubsection{Emotion, Behavior, and Gesture Recognition}
+
+For an assistive robot, reading people matters as much as seeing obstacles. The EMOTIVE project ran facial emotion recognition on a Pepper robot in hospital settings and found that a classical machine learning method (Random Forest) was competitive in both accuracy and speed, with good usability and acceptance ratings from participants. The LEMON system showed that a lightweight convolutional network can match far larger emotion models with a fraction of the parameters, which is exactly what matters on low-cost robot hardware. Hybrid models combining convolutional networks with support vector machines have reached over 96 percent emotion classification accuracy on standard face datasets. Beyond single faces, researchers have demonstrated group emotion detection from visual input and adaptive multimodal architectures that stay robust when one input source is missing or degraded. On the output side, studies of emotive robot faces find that people reliably read basic emotions from screen-based faces and that animated, biologically inspired designs communicate better than static ones; this is why HARP's head carries an animated pair of eyes that blink and change expression rather than a fixed image. For whole-body understanding, video action recognition has moved from custom-trained recurrent classifiers toward efficient pre-trained mobile networks such as MoViNet, trained on the large Kinetics video dataset and able to run on edge devices. HARP's own experience mirrored this literature exactly: a self-trained action classifier generalized poorly to live camera input, while the pre-trained mobile network succeeded.
+
+\subsubsection{Large Language Models as the Robot's Brain}
+
+The most consequential technology shift during the project's lifetime was the arrival of large language models (LLMs) as practical robot intelligence. The LLM-Brain framework demonstrated a language model unifying memory and control for embodied tasks in a zero-shot manner, meaning without task-specific retraining. Nadine, an LLM-driven social robot, added affective responses and human-like long-term memory through a dedicated perception, interaction, and control architecture. Evaluation frameworks such as MMRo test whether multimodal LLMs are actually fit to serve as a robot's brain across perception, planning, reasoning, and safety, and temper the enthusiasm with documented failure modes. Related work integrates explicit memory architectures with LLMs so that a robot can carry context across tasks and interactions. A complementary practical technique, Retrieval-Augmented Generation (RAG), grounds a model's answers in supplied documents, so a receptionist robot answers from its institution's actual information rather than from the model's general training. HARP tracked this literature closely: its conversational system progressed from a scripted chatbot, to a RAG-grounded Gemini pipeline, to full-duplex native-audio models, while keeping retrieval grounding and adding per-person memory.
+
+\subsubsection{Connected Robots and Remote Oversight}
+
+Service robots increasingly operate as networked devices, a trend the literature calls the Internet of Robotic Things. The practical questions are which communication protocols to use and how to secure them. Comparative studies favor MQTT, a lightweight publish-subscribe messaging protocol, for low-bandwidth telemetry from constrained devices, and DDS, the real-time middleware underneath ROS 2, for the robot's internal traffic; browser-based dashboards typically reach the robot through rosbridge, which translates web messages into ROS topics. Security surveys organize the threats to such systems by layer, covering the sensing, network, and application layers, and argue for defenses at each level, while ROS 2's SROS 2 tooling provides authentication, access control, and encryption inside the robot itself. HARP's IoT administrative layer, described in Section~\ref{sec:methodology}, follows these recommendations directly.
+
+\subsubsection{Acceptance of Assistive Robots}
+
+Finally, whether such robots are actually welcome is an empirical question with a growing evidence base. A systematic review of socially assistive humanoid robots identifies enjoyment, usability, personalization, and familiarity as the main enablers of acceptance, and technical problems, limited capability, and negative preconceptions as the main barriers. Surveys of staff across service settings find genuine openness to robots taking over routine tasks, alongside concerns about privacy and effects on their own roles. Users are broadly positive but prefer robots to act as assistants rather than companions or decision-makers. Reviews of deployed service robots report promising outcomes while cautioning that methodological quality limits firm conclusions. For HARP, these findings translated into concrete design priorities: personalization (greeting known people by name), reliability, a clearly assistive rather than autonomous role, and privacy safeguards such as never storing the faces of unknown people.
+
+Against this literature, HARP occupies a deliberate position: it combines the modularity lesson of the receptionist-robot lineage, a holonomic base, LiDAR-free visual navigation, on-device perception, LLM-based bilingual conversation, and networked administrative oversight in a single low-cost platform. The specific technical choices that followed are described in Section~\ref{sec:methodology}.
+
+\section{Objectives of the Project}
+
+\begin{enumerate}
+\item To develop HARP, a humanoid assistive robot with robust perception, seamless human-robot interaction, and safe autonomous mobility, capable of reliable operation in real-world service environments.
+\item To deliver operational efficiency and customer satisfaction by delivering consistent, personalized, and uninterrupted services through AI-driven learning and decision-making.
+\item To integrate advanced technologies, including natural language processing, computer vision, and machine learning, into a scalable and cost-effective service solution.
+\end{enumerate}
+
+\section{Research Methodology and System Development}
+\label{sec:methodology}
+
+\subsection{Development Approach}
+
+The system uses edge computing as its guiding principle. Complex AI tasks are executed directly at the source of the data, on embedded computers carried by the robot (initially a Raspberry Pi 4B and Jetson Nano, and finally a Raspberry Pi 5), with cloud AI services used only where they add clear value, such as large language model conversation. This keeps latency and bandwidth use low. ROS 2 is used throughout for data exchange and synchronization among sensors and modules.
+
+At the system level, HARP is organized into five main modules:
+
+\begin{enumerate}
+\item \textbf{Sensing Module.} Acquires data from the environment through voice, video, depth, and proximity sensors.
+\item \textbf{Perception Module.} Processes the sensed data to produce meaningful information: who is present, where they are, what they are doing, and what they are saying. Its submodules include face detection and recognition (with gender and emotion estimation), human behavior recognition, object detection and tracking, gesture recognition, and speech recognition.
+\item \textbf{Cognition Module.} Generates appropriate responses and actions. It includes natural language processing based on large language models, a retrieval system that grounds answers in supplied documents, and decision logic for navigation and interaction.
+\item \textbf{User Interface Module.} A tablet screen on the robot's chest for text, graphics, and touch input, an animated face on the head display, and audio output through onboard speakers.
+\item \textbf{Mobility Module.} The wheeled base, motor drivers, and navigation stack that move the robot safely through indoor spaces.
+\end{enumerate}
+
+Figure~\ref{fig:dataflow} shows how these modules connect at run time: sensing and user input feed the Jetson Nano perception and speech processing and the Raspberry Pi 5 path planner, which produce user gender, age, and emotion estimates, spoken responses, and navigation commands.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{flowchart.png}
+\caption{High-level data flow across HARP: RealSense perception and user prompts feed the Jetson Nano perception and speech processing and the Raspberry Pi 5 path planner, which produce user gender, age, and emotion estimates, spoken responses, and navigation commands.}
+\label{fig:dataflow}
+\end{figure}
+
+The work was carried out iteratively over three academic cycles. Each final year project team, working with the research assistants and the investigators, took the platform further. The first cycle (2023-24) delivered the mechanical structure, the first perception and chatbot modules, and the web interface. The second cycle (2024-25) delivered a new omnidirectional base, the gimbal neck, behavior recognition, the modern speech pipeline, passive visual SLAM, and full ROS 2 integration. The third cycle (2025-26) delivered the IoT administrative layer, the enhanced vision system, and the low-latency conversational upgrade. In parallel, the research team developed and hardened the robot control software and a next-generation conversational ``brain'', described in Sections~\ref{sec:integration} and~\ref{sec:brain}.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{development_collage.png}
+\caption{Snapshots of the HARP development process: the assembled prototype, a public demonstration, SolidWorks CAD models, 3D printed structural parts, and the emotion recognition module.}
+\label{fig:collage}
+\end{figure}
+
+\subsection{Mechanical Design and Fabrication}
+
+\subsubsection{First Iteration: Torso, Head, and Neck on the PeopleBot Platform}
+
+The first design cycle built the humanoid body. A PeopleBot mobile platform was available to the project, so the design effort focused on a torso, head, and neck that could mount on it. The target was a robot about five feet tall with a friendly, humanoid appearance, drawing inspiration from Pepper, ARMAR III, and BHR-5.
+
+Because no CAD model of the PeopleBot existed, the team first measured the physical platform and produced a simplified SolidWorks model of it. Several torso concepts were then explored and refined through iterative design reviews. The final torso is a shell of four 3D printed sections around an internal component structure. Dedicated plates hold the computing hardware, speakers, and provisions for future arms, and a holder carries the chest tablet. The head houses a 7 inch display and the depth camera, with a neck that manages cabling down to the torso and bolts to the body.
+
+The design was validated in ANSYS before manufacture. Static structural analysis was performed on the load-bearing internal parts, with the applied forces representing the screen, camera, and tablet weights, and with mesh convergence studies used to confirm the results. The analysis identified stress concentrations near mounting points and screen housing edges, which led to minor design changes. Deformations under load were small, confirming the structure could carry the imposed loads. An explicit dynamics study then simulated the torso colliding with a concrete wall at speeds from 0.3 to 0.7 m/s, covering the PeopleBot speed range. The von Mises stress concentrated at the front center of the torso and spread symmetrically, remaining within allowable limits.
+
+For manufacturing, candidate materials (mild steel, carbon fiber, acrylic, PLA, PETG, ABS) and methods (CNC machining, casting, forging, sheet metal work, injection molding, laser cutting, thermoforming, 3D printing) were compared. The selected combination was 3D printing in PLA for the shaped body parts and laser-cut plates for the base interfaces. The base plates were first made from mild steel by laser cutting and welding, but alignment and weight issues during assembly led to their replacement with 5 mm transparent acrylic. The 3D printed parts were assembled with keys, bolts, and screws, with some re-drilling to align holes against the unmodifiable PeopleBot plate. The first torso assembly mounted on the PeopleBot platform is shown in Figure~\ref{fig:evolution}(a).
+
+\subsubsection{Second Iteration: Custom Omnidirectional Base}
+
+The second design cycle replaced the PeopleBot with a purpose-built base. Traditional differential drives can only move forward, backward, and turn in place, which is slow and space-consuming in tight indoor environments. An omnidirectional base lets the robot move in any direction without turning first, which makes its motion smoother and more natural around people. The design requirements were a four mecanum wheel configuration, a total system weight of up to 60 kg, direct replacement of the PeopleBot, and a total robot height above five feet.
+
+The base frame was designed in SolidWorks through several iterations. Early drafts failed static analysis or lacked room for the control electronics, and one otherwise sound draft proved unstable in dynamic simulation. Supporting engineering calculations covered required torque (3.84 Nm per wheel against 9.81 Nm available per motor), acceleration (6.57 m/s\textsuperscript{2}), tipping stability (17.7 degrees sideways tipping angle with a centered center of gravity), motor power (45 W total), wheel traction against ADA friction values (51.5 N available against 49.3 N required), and battery sizing (about 6.8 hours of runtime from a 24 V, 5 Ah pack at nominal draw).
+
+The final design was verified in ANSYS Workbench with three analyses:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}L{3.2cm}L{5.8cm}L{5.2cm}@{}}
+\toprule
+\textbf{Analysis} & \textbf{Key Result} & \textbf{Interpretation} \\
+\midrule
+Static structural & Max von Mises stress 59.6 MPa against 250 MPa yield; max total deformation 0.90 mm & Factor of safety of about 4.2; structurally sound \\
+Modal & First natural frequency 20.3 Hz & Well above operational excitation; no resonance risk \\
+Eigenvalue buckling & First positive buckling load factor 162.4 & Buckling would require over 40,000 N; no realistic risk \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A URDF model was exported from SolidWorks using the URDF Exporter plugin and used for dynamic stability simulation in CoppeliaSim. Early versions toppled at low speeds, so the base area was increased and the center of mass lowered until the simulated platform was stable.
+
+The frame was fabricated from 16-gauge mild steel square tube (0.75 by 0.75 inch), cut, welded, drilled, and finished with anti-rust primer and paint. Fiberglass sheets form a skirt around the lower perimeter for a clean outer appearance. Custom motor couplers were machined because the supplied couplers did not fit the motor shafts. Motor brackets were laser cut from sheet metal and bent to 90 degrees, and a gimbal mounting plate was CNC milled to attach the head assembly. The fabricated platform is shown in Figure~\ref{fig:evolution}(b).
+
+\subsubsection{The 2 DoF Neck Mechanism}
+
+A fixed head limits social interaction, so the second cycle added a two degree of freedom neck. A servo-powered gimbal assembly provides pitch and yaw motion. A lightweight 3D printed head, carrying the camera and the face display, mounts on the gimbal through the CNC milled plate. The servos are driven by an ESP32 microcontroller through a PCA9685 servo driver, which receives angle commands over serial from the main computer. Servo angles are constrained to a safe mechanical range (yaw 20 to 90 degrees, pitch 40 to 70 degrees) to protect the mechanism. A mechanical design patent covering the platform has been filed through the NUST Intellectual Property Office.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.45\textwidth]{neck_gimbal.jpeg}
+\caption{The 2 DoF servo gimbal that carries the robot head.}
+\label{fig:gimbal}
+\end{figure}
+
+\subsection{Perception Module}
+
+\subsubsection{Face Detection with Depth, Gender, Emotion, and Gesture Recognition}
+
+Face perception went through three generations. The first system used OpenCV Haar cascade detection feeding two neural networks: a custom convolutional network for emotion recognition, trained on the FER-2013 dataset (over 35,000 images across seven emotions: angry, disgust, fear, happy, neutral, sad, surprise), and a pre-trained CNN for gender classification evaluated against the Adience benchmark. The emotion network used four convolutional blocks (32, 64, 128, and 256 filters with $3\times3$ kernels and ReLU activations), max pooling, and dense layers, trained with the Adam optimizer and categorical cross-entropy. The combined system ran in real time and drove gender-matched emoticons on the head display, so a happy male visitor and a happy female visitor each saw an avatar that mirrored them.
+
+The second generation moved emotion recognition to the DeepFace library, wrapped in a ROS 2 service so that recognition runs only when another subsystem requests it. This on-demand pattern cut resource use substantially and improved the responsiveness of the rest of the system.
+
+The final deployed system runs a YOLOv8n-face model in ONNX Runtime on the CPU of the Raspberry Pi 5, processing the RealSense color stream at $640\times480$ with letterboxing and non-maximum suppression implemented in NumPy. The depth stream is aligned to the color frame, so every detected face has a real-world distance. Distance is taken as the median depth over a small patch at the face center, which is robust to holes and noise in the depth map. The nearest face is selected as the interaction target and its pixel center is published on the ROS topic \texttt{/target\_face} at approximately 30 FPS. Gender and emotion estimates are overlaid on the same pipeline, as shown in Figure~\ref{fig:perception}(a).
+
+The same close-range zone is covered by gesture recognition with MediaPipe, which detects 21 hand landmarks per hand and 33 body pose landmarks using a two-stage detector and tracker design light enough for the Raspberry Pi 5. Gestures were mapped to robot control: an open palm initializes HARP and a closed fist stops it, as shown in Figure~\ref{fig:perception}(b), giving visitors an intuitive, contact-free way to command the robot. In the conversational software, a raised open palm that is held and then released acts as a greeting cue (a ``wave''), debounced so that one gesture fires exactly one event.
+
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}[t]{0.48\textwidth}
+\centering
+\includegraphics[width=\linewidth]{4_Face_Gender_Detection.png}
+\caption{}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+\centering
+\includegraphics[width=\linewidth]{gesture_control.jpeg}
+\caption{}
+\end{subfigure}
+\caption{Close-range human perception: (a) the deployed pipeline detecting a face with gender classification, emotion field, and a fused depth estimate of 0.92 m from the RealSense camera; (b) gesture-based control, where an open palm initializes HARP and a closed fist stops the robot.}
+\label{fig:perception}
+\end{figure}
+
+\subsubsection{Human Behavior Recognition}
+
+To let HARP respond to what people are doing, not just where they are, a video-based behavior recognition capability was developed. A self-trained CNN-LSTM classifier was built first. EfficientNetB0 extracted 1280-dimensional features from each frame, and a 32-unit LSTM classified sequences of up to 30 frames. Training data combined the KTH action dataset with a Kaggle activity dataset, giving eight final classes (hand waving, clapping, walking, falling, running, sitting, lying down, and standing), doubled in size by horizontal-flip augmentation with the Vidaug library. Training used Adam, early stopping, learning rate reduction on plateau, and checkpointing. The trained model reached good validation accuracy but generalized poorly to live webcam input, since no webcam footage was present in the training data.
+
+The production system therefore uses MoViNet, Google's family of mobile video networks trained on the Kinetics-600 dataset. MoViNet uses factorized (2+1)D convolutions and a stream buffer of causal convolutions, so it processes one frame at a time while keeping temporal context. It runs as a quantized TensorFlow Lite model, which makes it well suited to the robot's edge hardware. Inference is multithreaded so that classification never stalls the video feed.
+
+\subsubsection{Object Detection, Tracking, and Segmentation}
+
+The third cycle added general world perception with YOLOv8. The robot detects and labels objects in its surroundings in a single network pass, tracks them across frames with persistent identities using ByteTrack (with BoT-SORT available where identity retention matters more than speed), and produces pixel-level masks with the YOLOv8 segmentation variant. The vision nodes launch through a dedicated ROS 2 launch file and publish detections as ROS 2 topics for the navigation and interaction logic. Detection performance held up under partial occlusion and varying object orientations, and the tracker maintained object identities across successive frames during robot motion.
+
+Measured performance on the laboratory hardware:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Task} & \textbf{Hardware} & \textbf{Speed} & \textbf{Accuracy} \\
+\midrule
+Object detection (YOLOv8n) & CPU only & $\sim$18-22 FPS & mAP 37.3 \\
+Object detection (YOLOv8n) & NVIDIA GPU & $\sim$60+ FPS & mAP 37.3 \\
+Object tracking (ByteTrack) & CPU only & $\sim$15-18 FPS & High ID stability \\
+Segmentation (YOLOv8n-seg) & CPU only & $\sim$12-16 FPS & mask mAP 30.5 \\
+MediaPipe Hands & CPU only & $\sim$28-30 FPS & Sub-cm landmark accuracy \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Active Head Tracking and the Expressive Face}
+
+The head tracking subsystem closes the loop between perception and the neck hardware. A ROS 2 node subscribes to \texttt{/target\_face} and runs an independent PID controller per axis on the normalized pixel error between the face center and the frame center, with integral wind-up clamping and derivative terms. Tuned gains of $K_p = 1.5$, $K_d = 0.5$, $K_i = 0.1$ (yaw) and $K_p = 0.7$, $K_d = 0.6$, $K_i = 0.1$ (pitch) give smooth, jerk-free motion. The controller output is converted to servo angles, clamped to the safe mechanical limits, and streamed to the ESP32 over serial as a compact command at about 20 Hz.
+
+When no face is visible, the robot behaves autonomously. If the face is lost for under half a second, tracking simply continues. After two seconds the head returns to a neutral rest pose. After three to four seconds a smooth look-around sweep begins across the yaw range, staged so it can be interrupted the instant a face reappears. The node also publishes a boolean on \texttt{/face\_detected} so the rest of the system knows whether a person is present. In practice the robot holds eye contact, follows the nearest person smoothly, and visibly searches for company when alone, all with classical, tunable control.
+
+The face itself is an animated pair of eyes rendered in HTML, CSS, and JavaScript, hosted full screen in a PyQt5 window with QtWebEngine. The web page connects to the ROS graph over rosbridge (a websocket on port 9090) and subscribes to two topics: \texttt{/user\_emotions}, carrying one of happy, sad, angry, focused, surprise, or neutral, and \texttt{/face\_detected}. The eyes blink procedurally and switch expression keyframes as emotions change, and they react when a person appears or leaves. Because expression and presence are just ROS messages, any subsystem can change HARP's face without touching the UI code.
+
+\subsection{Speech and Conversational AI}
+
+Conversation is what turns HARP from a machine into a companion, and it received sustained attention across all three cycles.
+
+\textbf{First generation: scripted chatbot with RAG.} The initial system used the pyttsx3 text-to-speech engine and the SpeechRecognition library with Google's recognizer, wrapped around a command-matching chatbot. It was then upgraded to Google's Gemini model with safety settings, temperature control, and a speech front end. To ground answers in facts, Retrieval-Augmented Generation (RAG) was implemented with LangChain: PDF documents were loaded with PyPDFLoader, split into chunks, embedded with Google Generative AI embeddings, and stored in a Chroma vector database. At question time the retriever fetched the most relevant chunks and the model answered from them, falling back to the base Gemini model when retrieval found nothing suitable. Combining RAG with the language model raised answer accuracy to roughly 80 to 90 percent on the supplied documents while keeping responses fluent. Evaluation covered accuracy, response time, fluency, and relevance.
+
+\textbf{Second generation: cloud speech pipeline.} The second cycle replaced the desktop-style pipeline with a modern three-stage system. OpenAI's Whisper (large-v3) transcribed the user's speech with strong robustness to accents and noise. Gemini 2.0 Flash generated the response, with instructions tailoring it to HARP and a 150-token cap to keep replies short and conversational. Piper, an open-source text-to-speech engine using the ``amy-low'' voice, spoke the reply in a calm, natural female voice. A spoken hot word (``hello'') started a conversation, and ``bye'' ended it. Offloading transcription and language processing to the cloud kept the onboard computation light, at the cost of internet dependency and a short round-trip delay.
+
+\textbf{Third generation: native audio, full duplex, bilingual.} The final deployed assistant abandons the chained speech-to-text, language model, text-to-speech design entirely. It uses Google Gemini Live with a native audio model, streaming microphone audio to the model and playing the model's audio straight back, over an asynchronous pipeline built with Python asyncio. This audio-to-audio approach gives lower latency and much more natural turn-taking, including barge-in, where the robot yields gracefully when the user interrupts. Because the model is steered by a system instruction to mirror the user's language rather than by a pinned language code, HARP converses in both English and Urdu and switches between them mid-conversation. Camera frames can be streamed alongside the audio so the model can see what it is talking about. The assistant carries a fixed HARP persona: it identifies itself as a NUST CEME Mechatronics project funded by the Pro Rector RIC NUST, keeps a warm and concise tone, never claims emotions or consciousness, and closes conversations with a scripted goodbye. Robust audio handling detects the correct microphone and speaker by name, queries native sample rates, and resamples the model's 24 kHz output to whatever the speaker supports.
+
+The third cycle also integrated the Gemini 3 generation Live API into the human-robot interaction layer with a streaming architecture. Instead of waiting for a full response, the system receives token chunks through the google-genai SDK and publishes them to the \texttt{/robot\_speech} topic as they arrive, so the spoken and on-screen response begins almost immediately. The dashboard shows live subtitles of the conversation through the Web Speech API, which also makes the interaction accessible to hearing-impaired users.
+
+\subsection{Autonomous Mobility and Navigation}
+
+\subsubsection{Drive Control}
+
+For the mecanum base, the inverse kinematics of the four-wheel omnidirectional configuration convert desired body velocities ($V_x$, $V_y$, and rotation) into individual wheel angular velocities. An Arduino Mega received velocity commands from ROS over serial, applied the kinematic model, and closed a PID speed loop per wheel using quadrature encoder feedback, so each wheel reached and held its commanded speed despite load changes.
+
+The final integrated platform drives on two RMD-X8 brushless servo motors on dedicated serial ports. The motor driver software builds the motors' raw speed-command byte frames directly (header, little-endian signed speed, checksum), provides forward, reverse, turning, stopping, and live speed ramping, and always zeroes the motors on exit for safety. Two input paths feed the same driver: direct keyboard teleoperation, and a PS4 wireless controller node that maps the D-pad and face buttons to motion commands published on the ROS topic \texttt{/cmd\_input}. The same topic accepts commands from higher-level software, so the platform is both remote-controlled and autonomy-ready. A separate MQTT bridge lets external IoT devices publish motion commands into the same pipeline.
+
+\subsubsection{Passive Visual SLAM}
+
+HARP's navigation deliberately avoids costly active sensors such as LiDAR. Instead it uses passive visual SLAM built around the Intel RealSense D435i, which provides synchronized RGB images, depth maps, and 6-axis IMU data. The active stereo depth system with its infrared projector maintains depth accuracy of about $\pm 2$ percent at 2 meters even on low-texture surfaces.
+
+Real-Time Appearance-Based Mapping (RTAB-Map) fuses the RGB and depth streams into densely colored 3D point clouds as the robot moves, adding keyframes to a SLAM graph and updating the robot's pose through visual odometry. For navigation, the 3D point cloud is projected onto a 2D occupancy grid that classifies each cell as occupied, free, or unknown, published as a standard ROS occupancy grid message.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.6\textwidth]{rtabmap_3d.jpeg}
+\caption{RTAB-Map 3D point cloud map built from the RealSense RGB-D stream.}
+\label{fig:rtab3d}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.5\textwidth]{occupancy_grid.jpeg}
+\caption{The 2D occupancy grid derived from the 3D map, used for path planning.}
+\label{fig:grid}
+\end{figure}
+
+Path planning uses the A* algorithm on the occupancy grid. A* was chosen over Dijkstra's algorithm because its heuristic cost term finds short paths with far less search effort. The planner was first validated in simulation with ROS, Gazebo, and RViz on a simulated four-wheel mecanum robot, which confirmed smooth lateral and diagonal trajectories around obstacles. On the physical robot, RTAB-Map runs in two modes. In mapping mode the robot is driven through the environment while the map is built. In localization mode it loads the stored map, matches current camera frames against stored keyframes to estimate its pose, and navigates autonomously to goals selected in RViz or through the dashboard.
+
+Beyond RTAB-Map, ORB-SLAM3 was studied in simulation to prepare the platform for dynamic environments where people and furniture move. ORB-SLAM3 fuses IMU data with the visual pipeline and maintains accurate localization in large, cluttered spaces. Figures~\ref{fig:orbslam1} and~\ref{fig:orbslam2} show the simulation environment and the resulting maps.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{1_SLAM.png}
+\caption{ORB-SLAM3 running against a simulated indoor environment in Gazebo. The current frame view (bottom left) shows tracked ORB features, and the map viewer shows the growing keyframe graph.}
+\label{fig:orbslam1}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{2_SLAM.png}
+\caption{The ORB-SLAM3 map viewer showing the accumulated point cloud and keyframe trajectory during a simulated mapping run.}
+\label{fig:orbslam2}
+\end{figure}
+
+\subsection{System Integration on ROS 2}
+\label{sec:integration}
+
+Both the demonstrated robot and its software follow one architectural thesis: independent components that communicate only through messages, never by importing one another. On the physical robot, ROS 2 topics are the message bus. Perception, head control, mobility, teleoperation, voice, and the animated face are separate ROS nodes and processes, coupled only by named topics such as \texttt{/target\_face}, \texttt{/face\_detected}, \texttt{/cmd\_input}, \texttt{/user\_emotions}, and \texttt{/robot\_speech}. A single launch file brings up the entire system: rosbridge, the face UI, the voice assistant, the drive motor controller, PS4 teleoperation, depth detection, and face tracking. Even the browser front-end is just another node, bridged in over rosbridge.
+
+The integrated modules are:
+
+\begin{itemize}
+\item \textbf{Vision module.} Captures camera frames with OpenCV, runs face tracking and publishes offsets to \texttt{neck\_coordinates}, and exposes emotion detection as an on-demand ROS 2 service.
+\item \textbf{Neck module.} Subscribes to face coordinates, runs the per-axis PID, streams servo commands to the ESP32, runs the look-around behavior, and publishes the current expression on \texttt{user\_emotions}.
+\item \textbf{Face animation module.} Displays the animated eyes and switches expressions from \texttt{user\_emotions} and \texttt{/face\_detected}.
+\item \textbf{Speech module.} Runs the conversational pipeline described in Section 7.5.
+\item \textbf{Teleops and MQTT modules.} Route movement commands from operators and IoT devices to the drive motors.
+\end{itemize}
+
+The final deployment platform is a Raspberry Pi 5 (8 to 16 GB) running Ubuntu 24.04, Python 3.11, and ROS 2 Jazzy, with the RealSense camera, the ESP32 head controller, the drive motors, a USB microphone and speaker, the head display, and the PS4 controller attached as peripherals. This node-per-responsibility design means each subsystem is independently runnable and testable, which is exactly what allowed three student cohorts and two research assistants to grow the platform without rewrites.
+
+\subsection{The Conversational Software Brain}
+\label{sec:brain}
+
+In parallel with the robot control stack, the research team engineered a from-scratch conversational agent that packages HARP's intelligence in a robust, modular, provider-independent form. It applies the same message-passing philosophy inside a single process: an asynchronous publish/subscribe event bus is the spine, and the orchestrator, wake listener, vision, voice bridge, and dashboard publish and consume typed events without ever importing each other.
+
+Its main capabilities:
+
+\begin{itemize}
+\item \textbf{Provider-independent real-time voice.} One interface drives either Google Gemini Live or the OpenAI Realtime API, selectable at runtime. The rest of the system is written once against a normalized event stream, so retrieval, vision, memory, and the UI do not care which vendor is live. Conversation is full duplex, interruptible, and bilingual in English and Urdu, including natural mid-conversation code-switching.
+\item \textbf{Cost-aware session supervision.} An orchestrating state machine keeps the assistant alive continuously but opens the paid cloud session only when someone is actually there, on a wake word, a loud sound, or a wave. It closes the session at the end of the interaction, narrates errors aloud, retries with capped exponential backoff, and publishes heartbeats so a watchdog can detect a hang.
+\item \textbf{Always-on local wake listening.} While idle, the microphone is monitored locally. A loudness threshold wakes the agent immediately, and quieter speech is transcribed offline on the CPU with faster-whisper and checked for configurable wake words, including Urdu-script phrases. The wake transcript is passed to the model as context, so HARP knows why it woke.
+\item \textbf{Grounded answers through retrieval.} A keyword search index (BM25) over supplied markdown documents, with English and Urdu tokenization, is exposed to the language model as a tool call. The model retrieves before answering questions about the documents and grounds its reply on what came back. The document folder is fully general, so the same robot can host an expo, a lab, or a reception desk just by swapping files.
+\item \textbf{Face identity and per-person memory.} InsightFace embeds detected faces into 512-dimensional vectors on-device and matches them against enrolled people by cosine similarity. When a known person appears, the session is told who it is talking to, so HARP greets them by name and in context. Each person has a human-editable memory record with their name, role, notes, and accumulating conversation summaries. Unknown faces are reported but never stored, and enrollment photos are kept out of version control, which is the project's privacy stance.
+\item \textbf{Developer dashboard.} A read-only web dashboard shows the live state machine, the grouped conversation transcript, tool calls, presence and identity events, heartbeats, errors, and the live camera view with detection overlays. It is reachable over the LAN, so the team monitored demonstrations from a phone.
+\end{itemize}
+
+The engineering methodology behind this software is a project outcome in its own right. The hardest unknown, real-time bilingual voice quality, was proven in a throwaway spike before any architecture was committed. 
+
+\subsection{IoT Administrative Control and Remote Monitoring}
+
+The third cycle transformed HARP from a localized robotic unit into a connected assistive platform. An IoT administrative layer now bridges the robot's internal ROS 2 architecture and human operators anywhere on the network.
+
+The centerpiece is a web-native Human-Robot Interaction (HRI) dashboard built with HTML5, CSS3, and JavaScript. It communicates with the robot through a rosbridge WebSocket, which translates JSON messages from the browser into ROS 2 topics and back. Any device with a browser (tablet, phone, or laptop) can operate the robot without installing ROS. The dashboard provides:
+
+\begin{itemize}
+\item \textbf{Real-time telemetry.} A central telemetry node publishes battery level, current location, and navigation status, so the operator always sees the robot's state. Perception feedback such as ``path clear'' builds trust in autonomous operation.
+\item \textbf{Visitor logging with persistent storage.} Visitor check-ins entered on the dashboard flow over a \texttt{visitor-log} topic to a database manager node, which stores names, visit purposes, and timestamps in an SQLite database. Every interaction is auditable, which matters for administrative and security records.
+\item \textbf{Voice feedback.} A text-to-speech layer, using the browser's Web Speech API with offline pyttsx3 and espeak engines as fallbacks, converts system events such as a successful check-in into spoken confirmations.
+\item \textbf{Teleoperation and emergency override.} Low-latency WebSocket command streaming gives the operator a human-in-the-loop safety mechanism, including manual override and emergency stop.
+\end{itemize}
+
+The communication design splits traffic by need: MQTT carries lightweight, asynchronous telemetry with low bandwidth use, while WebSockets carry the low-latency, full-duplex command stream. micro-ROS agents connect the ESP32 microcontroller directly into the ROS 2 graph for hardware telemetry. The review of IoT security threats across the perception, network, and application layers informed the deployment, and ROS 2's DDS security features (authentication, access control, and encryption through SROS 2) provide the internal protection model. This offloading also has a performance purpose: with speech handled in the browser and heavy reasoning in the cloud, the Raspberry Pi 5 and ESP32 stay focused on motor control and YOLOv8 perception.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{hri_dashboard.jpeg}
+\caption{The finalized HARP Human-Robot Interaction web dashboard, showing telemetry, visitor check-in, and interaction controls.}
+\label{fig:dashboard}
+\end{figure}
+
+\section{Capability Achieved}
+
+A fully functional prototype of HARP was developed, demonstrating robust perception, seamless human-robot interaction, and safe autonomous mobility in real-world indoor service environments, as proposed. In its final form the platform:
+
+\begin{itemize}
+\item Detects the nearest person in real time with fused color and depth sensing, estimates gender and emotion, and holds eye contact through active PID head tracking, with an autonomous look-around behavior when no one is present.
+\item Converses naturally in English and Urdu through a full-duplex, interruptible, cloud audio-to-audio pipeline, grounded in supplied documents through retrieval, with an expressive animated face that reacts to emotion and presence.
+\item Recognizes human actions, everyday objects, and hand gestures, and accepts gesture commands to start and stop.
+\item Moves under both remote control (PS4 controller, keyboard, and web dashboard) and autonomous navigation, using passive visual SLAM with RTAB-Map, a derived occupancy grid, and A* path planning, without any LiDAR.
+\item Reports its own health and accepts administrative control through a web dashboard, with persistent visitor logging and spoken feedback.
+\end{itemize}
+
+Operational efficiency and user experience were enhanced through consistent, personalized, and uninterrupted service delivery enabled by AI-driven learning and decision-making. The successful integration of natural language processing, computer vision, and machine learning on low-cost edge hardware resulted in a scalable and cost-effective humanoid service platform. Figure~\ref{fig:evolution} shows the evolution of the platform across the design iterations, and Figure~\ref{fig:motion} shows the robot in operation.
+
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}[t]{0.26\textwidth}
+\centering
+\includegraphics[width=\linewidth]{torso_peoplebot.jpeg}
+\caption{}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.22\textwidth}
+\centering
+\includegraphics[width=\linewidth]{omni_base.jpeg}
+\caption{}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.35\textwidth}
+\centering
+\includegraphics[width=\linewidth]{3_Final_Product.jpeg}
+\caption{}
+\end{subfigure}
+\caption{Evolution of the HARP platform: (a) the first torso assembly on the PeopleBot mobile platform, (b) the fabricated second iteration on the custom omnidirectional base, (c) the final HARP prototype with the animated face and camera on the gimbal head, the RealSense depth camera and tablet on the torso, and the drive base below.}
+\label{fig:evolution}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[height=0.42\textheight,keepaspectratio]{5_In_Motion.png}
+\caption{HARP operating in a corridor outside the Robotics and Control Lab.}
+\label{fig:motion}
+\end{figure}
+
+\section{Benefits of the Project}
+\subsection{Socio-Economic Impact of the Project}
+
+HARP has significant socio-economic impact potential in Pakistan, particularly in the healthcare sector. By automating routine tasks such as patient navigation, data collection, and reception duties, HARP can reduce the burden on overworked hospital staff and improve healthcare accessibility and quality. Its development and deployment create job opportunities and foster skill development in robotics, AI, and technical support, contributing to local innovation. The project has already trained twelve final year students, five interns, and two research assistants in advanced robotics and AI engineering.
+
+HARP offers hospitals a cost-effective path to resource optimization and better patient care. Its bilingual English and Urdu capability ensures social inclusion for Pakistan's diverse population, and its contactless interaction features enhance public health safety, especially during disease outbreaks. Overall, HARP drives innovation, supports economic growth, and improves service efficiency, making it a practical response to the country's healthcare workforce challenges.
+
+\subsection{Market Potential}
+
+\textbf{Patient assistance and navigation.} HARP's multimodal perception, emotion recognition, and multilingual communication let it guide patients and visitors to departments, clinics, and facilities efficiently. This is especially relevant in Pakistan's linguistically diverse environment, where the ability to serve visitors in both Urdu and English makes hospital services more inclusive while reducing staff workload.
+
+\textbf{Reception and information desk automation.} HARP can function as an interactive reception assistant, handling common inquiries, appointment guidance, and real-time information such as doctor availability. The visitor logging system keeps an auditable record of every check-in. This relieves congestion at reception counters and improves visitor satisfaction.
+
+\textbf{Teleoperation and logistics support.} Through teleoperation and autonomous mobility, HARP can assist with routine logistical tasks such as delivering medication, transporting documents, and carrying equipment between wards, reducing physical strain on staff.
+
+\textbf{Infection control and contactless interaction.} HARP supports contactless interaction, including gesture commands and voice-only conversation, for symptom screening, information provision, and patient guidance. This reduces unnecessary human contact and infection risk, a lesson reinforced by the pandemic.
+
+Beyond healthcare, HARP has strong commercialization potential in banking and corporate service environments. Initial discussions are underway with JS Bank, with two online meetings held, to explore the deployment of humanoid assistants for customer engagement and service automation.
+
+\subsection{End Users and Organizations}
+
+Hospitals, banks, hotels, university receptions, rehabilitation and elderly care centers, and public service facilities.
+
+\subsection{Efforts towards Marketing, Commercialization, and Linkages}
+\label{sec:linkages}
+
+To commercialize HARP, the team is targeting private and public-sector hospitals through pilot deployments and strategic partnerships. Demonstrations highlighting patient assistance, emotion recognition, and multilingual interaction are being used to show gains in operational efficiency and patient experience. To support scaling and deployment, research proposals have been submitted under the RASTA/PIDE and NEC NRPU 2025 funding schemes. Public exposure at trade expos and competitions (Figure~\ref{fig:showcase}) has already produced an international research collaboration, and commercialization discussions with JS Bank continue in parallel. Table~\ref{tab:linkages} summarizes the project's public exposure, funding progress, and linkages with R\&D organizations, universities, and industry.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}L{3.8cm}L{3.4cm}L{7.3cm}@{}}
+\toprule
+\textbf{Engagement} & \textbf{Type} & \textbf{Outcome / Status} \\
+\midrule
+\textbf{ASEAN}-Pakistan Trade and Investment Expo (\textbf{APTEX}) & Exhibition / showcase & Led to an international research collaboration with \textbf{Dr.\ Daphne Teck Ching Lai} (Brunei Darussalam) \\
+\addlinespace
+\textbf{COMPPEC} & Exhibition / showcase & Publicly demonstrated to students, academia, and industry visitors \\
+\addlinespace
+\textbf{Indus RAS} Expo, 22-23 July 2026 & Exhibition / showcase & Upcoming showcase \\
+\addlinespace
+\textbf{RASTA/PIDE} research proposal & Research funding & Joint proposal with Dr.\ Daphne Teck Ching Lai (Brunei Darussalam) submitted \\
+\addlinespace
+HEC \textbf{NRPU} 2025 funding scheme & Research funding & Reached stage two of the evaluation \\
+\addlinespace
+\textbf{JS Bank} & Industry / commercialization & Two online meetings held \\
+\bottomrule
+\end{tabular}
+\caption{Marketing exposure, commercialization progress, and linkages with R\&D organizations, universities, and industry.}
+\label{tab:linkages}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}[t]{0.55\textwidth}
+\centering
+\includegraphics[trim={16cm 0 0 0},clip,width=\linewidth,height=0.32\textheight,keepaspectratio]{ASEAN_Showcase.jpeg}
+\caption{}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.35\textwidth}
+\centering
+\includegraphics[trim={0 0 0 28cm},clip,width=\linewidth,height=0.32\textheight,keepaspectratio]{COMPPEC_Showcase.jpeg}
+\caption{}
+\end{subfigure}
+\caption{HARP on public display: (a) at the ASEAN-Pakistan Trade and Investment Expo (APTEX), and (b) at the All-Pakistan Inter-Colleges/Universities Computer Project Competition (COMPPEC).}
+\label{fig:showcase}
+\end{figure}
+
+\section{Tangible Outputs of the Project}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}L{3.5cm}L{11cm}@{}}
+\toprule
+\textbf{Output} & \textbf{Detail} \\
+\midrule
+\textbf{Journal paper} & One journal paper under review, submitted to Advanced Mechatronics (Taylor and Francis, W category) \\
+\textbf{Patent / IP} & Mechanical design patent filed at the NUST Intellectual Property Office \\
+\textbf{Product type} & Working prototype (design model, software, and integrated hardware platform) \\
+\textbf{Software} & Two open codebases: the ROS 2 robot control stack and the modular conversational agent, plus the student teams' repositories (including the FYDP ROS 2 environment on GitHub) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Research Assistants}
+\label{sec:ras}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}clrlr@{}}
+\toprule
+\textbf{S. No} & \textbf{Name} & \textbf{Monthly Salary (PKR)} & \textbf{Duration} & \textbf{Total Cost (PKR)} \\
+\midrule
+1 & Kashaan Ansari & 30,000 & 7 months & 216,620 \\
+2 & Ahyan Ahmed & 30,000 & 5 months & 125,806 \\
+\midrule
+ & \textbf{Total} & & & \textbf{342,426} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Research Supervised}
+\label{sec:supervised}
+
+Three final year design projects of the Department of Mechatronics Engineering were completed on the platform, involving twelve undergraduate students in total, and five undergraduate internships were conducted across different modules.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}L{2.6cm}L{4.8cm}L{7cm}@{}}
+\toprule
+\textbf{Category} & \textbf{Team} & \textbf{Focus} \\
+\midrule
+FYDP 2023-24 (DE-42 MTS) & Hassan Rizwan, Numan Siddique, Ifrah Sajjad, Fiza Hassan & Mechanical design and fabrication of the torso, head, and neck; emotion and gender recognition; Gemini chatbot with RAG; web user interface \\
+\addlinespace
+FYDP 2024-25 (DE-43 MTS) & Syed Muhammad Daniyal Gillani, Muhammad Abdullah Khalid, Wajieh Badar, Umair Shahzad & Omnidirectional mecanum base design and fabrication; 2 DoF neck gimbal; behavior recognition; speech pipeline; passive visual SLAM; ROS 2 integration \\
+\addlinespace
+FYDP 2025-26 (DE-44 MTS) & Noor-Ul-Ain, Aqib Ali & IoT administrative control and web dashboard; visitor logging; YOLOv8 object detection, tracking, and segmentation; MediaPipe gesture control; Gemini Live integration \\
+\addlinespace
+Internship (2025) & Muhammad Zahid, Abdullah Virk, Hassan Ali Ahmed, Uzair Ali and Muhammad Talha & VLM based path planning \\
+\addlinespace
+Internship (2026) & Sheih Muhammad Ismail, Asif Mujtaba, Uswah Jafar and Abdul Rafay & Enhancing HARP Perception Module \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+
+
+
+\section{Reasons for Project Extensions}
+
+The project was approved on 17 November 2023 for a duration of 12 months. Delays in execution were primarily due to human resource constraints, which led to two cost-neutral extension requests.
+
+\textbf{First extension (up to 11 May 2025).} Although the project was approved in November 2023, the hiring of the first Research Assistant completed on 12 February 2024. The Research Assistant then resigned on 12 September 2024 after seven months of service, disrupting project continuity. Several planned activities could not be completed within the original timeline, so a cost-neutral extension was requested to complete the remaining tasks within the approved scope.
+
+\textbf{Second extension (up to 30 December 2025).} Following the first extension, multiple hiring drives were conducted to recruit a replacement. One candidate accepted briefly but withdrew before joining, and two shortlisted candidates declined due to the limited remuneration available under the approved budget. A further hiring drive also failed for the same reason. As a result, minor but essential activities, including system refinement, integration, and iterative testing, remained incomplete. A second cost-neutral extension was requested up to 30 December 2025, along with permission to engage undergraduate and postgraduate students under the approved HR budget. This arrangement allowed the third final year team and interns to complete the remaining work.
+
+\pagebreak
+\section{Major Problems Faced During Execution}
+
+The primary challenge was limited financial resources, which forced expenditure to be prioritized toward the essential hardware, sensors, and computing equipment needed for the prototype. As a result, comparatively little remained for research assistant salaries. The limited remuneration shrank the pool of interested and qualified candidates, which affected manpower availability and, in turn, the execution timeline. Despite these limitations, the project objectives were achieved through optimized resource use, the structured involvement of student teams, and focused development effort.
+
+A second, technical challenge was the on-board computing platform. The NVIDIA Jetson Nano does not have enough memory or processing power to run local large language models effectively. Even where a smaller, quantized model does fit, its quality falls well short of what frontier models deliver through cloud API calls. A more capable board such as the NVIDIA Jetson Orin would have performed considerably better here, but the project's focus was on developing the hardware platform, and the limited budget was spent mostly on that. HARP therefore relies on API-based conversational intelligence rather than fully on-device language models, which improves response quality.
+
+\section{Recommendations and Future Work}
+
+While the current HARP prototype successfully demonstrates perception, interaction, and autonomous navigation, it remains a research and development prototype rather than a market-ready product. Further engineering is needed to reach a fully deployable commercial system. The recommended directions, drawn from the project's own findings, are:
+
+\begin{enumerate}
+\item \textbf{Manipulation.} Integrate articulated arms so HARP can handle objects, open doors, and shake hands. This is the largest single capability gap for real service tasks.
+\item \textbf{Dynamic navigation.} Move from static-map SLAM to dynamic SLAM (for example ORB-SLAM3 and DynaSLAM approaches already studied in simulation), so navigation remains robust among moving people and furniture. Human-aware planning that respects personal space should follow.
+\item \textbf{Richer multimodal intelligence.} Adopt vision-language models so the robot can act on combined visual and verbal instructions, and expand per-person memory so long-term relationships with users deepen over time.
+\item \textbf{On-device language models.} Upgrade the on-board computer to a more capable platform, such as the NVIDIA Jetson Orin, so that capable local language models can run directly on the robot.
+\item \textbf{Fleet and cloud features.} Extend the IoT layer to multi-robot coordination and centralized fleet management, with predictive maintenance based on telemetry analytics.
+\item \textbf{Productization.} Industrial-grade hardware design, long-term reliability testing, safety certification, cybersecurity hardening, power optimization, and user-centered interface refinement.
+\end{enumerate}
+
+From a commercialization perspective, the current prototype is a strong technology demonstrator. It can be leveraged to attract industry partners, pilot deployments, and follow-on funding. Targeted collaborations with hospitals, banks, and public facilities can move commercialization through controlled pilots before full-scale market entry. The platform will also continue to serve as a social-robotics research testbed for human-robot interaction at NUST.
+
+\section{Conclusion}
+
+The HARP project set out to build a humanoid assistive robot that could perceive, converse, and move in real service environments, and it delivered exactly that. Over three iterative development cycles, the project produced a validated mechanical platform, a layered perception system spanning faces, emotions, actions, objects, and gestures, a bilingual conversational intelligence that progressed from a scripted chatbot to a full-duplex native-audio agent, LiDAR-free autonomous navigation, and a connected administrative layer for remote oversight. The work trained a substantial cohort of young engineers, generated a journal submission and a design patent filing, seeded an international collaboration and industry discussions, and left behind two well-engineered codebases on which future research and commercialization can build.
+
+\end{document}

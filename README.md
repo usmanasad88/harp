@@ -27,11 +27,18 @@ camera + gesture + face-ID vision stack, and the developer dashboard — all
 sharing one event bus. Wake it with a wake word, a loud sound, or a wave, then
 talk (English or Urdu); it replies through your speakers. `Ctrl+C` to quit.
 
-Open <http://127.0.0.1:8787> for the developer dashboard — a live read-only view
-of the agent: state, heartbeats, wake requests, every phrase the idle listener
-heard (and whether it matched a wake word), the transcript and tool calls of the
-live conversation, detected gestures, face-ID, and the camera view with a live
-box + label drawn over whatever the recognizer currently sees.
+The developer dashboard (<http://127.0.0.1:8787>) opens in your default browser
+automatically at boot (set `dashboard.open_browser: false` in
+[harp.yaml](harp.yaml) to skip that on a headless/SSH run) — a live read-only
+view of the agent: state, heartbeats, wake requests, every phrase the idle
+listener heard (and whether it matched a wake word), the transcript and tool
+calls of the live conversation, detected gestures, face-ID, and the camera view
+with a live box + label drawn over whatever the recognizer currently sees.
+Above the camera feed, a **Camera source** dropdown lets you switch live
+between Auto (RealSense preferred whenever one's plugged in), RealSense only,
+the laptop's own webcam, and a USB webcam — no restart needed; see
+`camera:` in [harp.yaml](harp.yaml) for the startup default and which device
+index counts as "laptop" vs. "USB".
 
 The same server also serves <http://127.0.0.1:8787/user> — the **end-user
 screen**, meant for a display facing the visitor (put it full-screen with F11).

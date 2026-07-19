@@ -8,6 +8,8 @@ cloud voice is unavailable.
 The clips + a manifest are generated offline (assets/status_voice/, see
 scripts/generate_status_voice.py). Callers reference a stable id, e.g.
 `play("starting_up")`, never a raw path, so the backing clips can change freely.
+WHICH id plays at which life-cycle moment is not decided here or by callers ad
+hoc — that policy is the rule book, orchestrator/status_rules.py.
 
 Design notes:
   - Playback is SERIALIZED (one clip at a time) via an asyncio lock, so two

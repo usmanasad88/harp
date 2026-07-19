@@ -87,9 +87,14 @@ class WakeRequested(Event):
 @dataclass
 class EndOfInteractionDetected(Event):
     """The end-rules monitor judged the conversation over; the orchestrator
-    should close the session (ACTIVE → STANDBY)."""
+    should close the session (ACTIVE → STANDBY). `reason` is the free-form
+    human explanation (logs/dashboard); `cause` is the machine-readable
+    variant the status rule book keys on (orchestrator/status_rules.py):
+    walked_off | silence | agent | provider | "" (unspecified → the rule
+    book's plain "session_end" fallback)."""
 
     reason: str
+    cause: str = ""
 
 
 # --- interaction / voice -----------------------------------------------------
@@ -186,6 +191,46 @@ class MicMuteChanged(Event):
     mic, now or later, is affected with no code changes on its side."""
 
     muted: bool
+
+
+@dataclass
+class CameraSourceChanged(Event):
+    """The selected camera source changed (dashboard camera dropdown, or the
+    seeded startup value from harp.yaml `camera.backend`). `source` is what
+    was selected (auto | realsense | webcam | usb_webcam, see
+    config.CAMERA_SOURCE_CHOICES); `backend` is whichever backend is actually
+    driving frames right now (realsense | webcam), or None if not opened yet
+    — for `auto`, this is the only way to tell which one it resolved to."""
+
+    source: str
+    backend: str | None = None
+
+
+@dataclass
+class MoveAroundChanged(Event):
+    """The base motors' "move around" stall patrol started or stopped — via
+    the agent's move_around tool, the dashboard's button, or the bounded lap
+    finishing on its own. Published ONLY by the MoveAroundController
+    (harp/motion/controller), which owns the motors; the dashboard seeds and
+    renders it. `active=True` = the base is driving right now; `note` says why
+    it changed ("patrol started" / "finished the patrol" / "stopped: ...")."""
+
+    active: bool
+    note: str = ""
+
+
+@dataclass
+class FollowChanged(Event):
+    """The base motors' "follow me" mode started or stopped — via the agent's
+    follow_person tool, the target being lost from view, or shutdown. Published
+    ONLY by the FollowController (harp/motion/follow), which owns the motors
+    while following. `person` is the display name (or id) of the known person
+    being followed; `note` says why it changed ("following started" /
+    "lost sight of ..." / "stopped: ...")."""
+
+    active: bool
+    person: str = ""
+    note: str = ""
 
 
 @dataclass

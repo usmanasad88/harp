@@ -97,6 +97,49 @@ def test_dashboard_bind_overrides(tmp_path: Path):
     assert s.dashboard.port == 9000
 
 
+def test_dashboard_open_browser_default_and_override(tmp_path: Path):
+    assert DashboardSettings().open_browser is True
+    f = tmp_path / "harp.yaml"
+    f.write_text("dashboard:\n  open_browser: false\n")
+    assert load_settings(f).dashboard.open_browser is False
+
+
+def test_camera_defaults_and_override(tmp_path: Path):
+    from harp.config import CameraSettings
+
+    assert load_settings(tmp_path / "nope.yaml").camera == CameraSettings()
+    assert CameraSettings().usb_webcam_index == 1
+    f = tmp_path / "harp.yaml"
+    f.write_text("camera:\n  backend: webcam\n  webcam_index: 2\n  usb_webcam_index: 3\n")
+    cam = load_settings(f).camera
+    assert cam.backend == "webcam"
+    assert cam.webcam_index == 2
+    assert cam.usb_webcam_index == 3
+
+
+def test_camera_source_state_select_maps_to_backend_and_device():
+    """This mapping is what makes the dashboard's camera dropdown able to
+    tell realsense/laptop-webcam/usb-webcam apart — Camera itself only knows
+    'webcam' + a device index, it has no idea which physical camera that is."""
+    from harp.config import CameraSourceState
+
+    state = CameraSourceState(webcam_index=0, usb_webcam_index=1)
+    assert state.select("auto") == ("auto", 0)
+    assert state.select("realsense") == ("realsense", 0)
+    assert state.select("webcam") == ("webcam", 0)
+    assert state.select("usb_webcam") == ("webcam", 1)
+    assert state.snapshot() == {"source": "usb_webcam"}  # records the last selection
+
+
+def test_camera_source_state_select_rejects_bad_input():
+    import pytest
+
+    from harp.config import CameraSourceState
+
+    with pytest.raises(ValueError):
+        CameraSourceState().select("bogus")
+
+
 def test_dashboard_bind_host_maps_known_modes():
     assert dashboard_bind_host("localhost") == "127.0.0.1"
     assert dashboard_bind_host("network") == "0.0.0.0"

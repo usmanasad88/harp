@@ -7,17 +7,21 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 
 import pytest
 
 from harp.core.bus import Bus
 from harp.core.events import (
+    AgentSaid,
     EndOfInteractionDetected,
     InteractionEnded,
     InteractionStarted,
     PresenceChanged,
+    TalkKeyChanged,
+    UserSaid,
 )
-from harp.interaction.end_rules import EndOfInteractionMonitor
+from harp.interaction.end_rules import EndOfInteractionMonitor, SilenceMonitor
 
 
 async def _start(monitor) -> asyncio.Task:
@@ -134,4 +138,74 @@ async def test_leaving_again_starts_a_fresh_full_countdown():
 
     ev = await _next(stream, timeout=1.0)
     assert isinstance(ev, EndOfInteractionDetected)
+    await _stop(task)
+
+
+# --- SilenceMonitor: the "nobody is saying anything" rule ----------------------
+# The hole it plugs: a person standing in frame who never talks keeps face-
+# presence alive forever, so only a quiet-time countdown can close the session.
+
+
+async def test_a_session_where_nothing_is_said_closes():
+    bus = Bus()
+    stream = bus.subscribe(EndOfInteractionDetected)
+    task = await _start(SilenceMonitor(bus, silence_timeout=0.05))
+
+    await bus.publish(InteractionStarted(reason="button"))  # ...and then nothing
+
+    ev = await _next(stream)
+    assert ev.cause == "silence"  # the rule book narrates this as a goodbye
+    await _stop(task)
+
+
+async def test_conversation_activity_restarts_the_countdown():
+    bus = Bus()
+    stream = bus.subscribe(EndOfInteractionDetected)
+    task = await _start(SilenceMonitor(bus, silence_timeout=0.08))
+
+    await bus.publish(InteractionStarted(reason="button"))
+    # Keep the conversation alive past several would-be timeouts, alternating
+    # every signal that counts as activity (streaming fragments included).
+    for ev in (
+        UserSaid(text="hel", final=False),
+        AgentSaid(text="hi there", final=True),
+        TalkKeyChanged(held=True),
+    ):
+        await asyncio.sleep(0.05)  # well under the timeout, but sums past it
+        await bus.publish(ev)
+
+    # If a countdown had (wrongly) expired mid-conversation, its event is
+    # already queued and _next returns instantly. The genuine close can only
+    # arrive one FULL timeout after the last activity — so measure it.
+    t0 = time.monotonic()
+    ev = await _next(stream, timeout=1.0)  # went quiet for good → closes
+    assert ev.cause == "silence"
+    assert time.monotonic() - t0 >= 0.06  # a fresh countdown, not a stale fire
+    await _stop(task)
+
+
+async def test_interaction_ending_disarms_the_silence_countdown():
+    bus = Bus()
+    stream = bus.subscribe(EndOfInteractionDetected)
+    task = await _start(SilenceMonitor(bus, silence_timeout=0.05))
+
+    await bus.publish(InteractionStarted(reason="wave"))
+    await bus.publish(InteractionEnded(reason="agent hung up"))  # closed early
+
+    with pytest.raises(asyncio.TimeoutError):
+        await _next(stream, timeout=0.15)
+    await _stop(task)
+
+
+async def test_speech_while_idle_never_arms_the_silence_rule():
+    bus = Bus()
+    stream = bus.subscribe(EndOfInteractionDetected)
+    task = await _start(SilenceMonitor(bus, silence_timeout=0.05))
+
+    # No session open: overheard speech / button noise must not start anything.
+    await bus.publish(UserSaid(text="just chatting nearby", final=True))
+    await bus.publish(TalkKeyChanged(held=True))
+
+    with pytest.raises(asyncio.TimeoutError):
+        await _next(stream, timeout=0.15)
     await _stop(task)

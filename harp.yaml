@@ -10,6 +10,8 @@
 #   prompts/filter_instructions.md          the optional two-agent noise filter's persona
 #   prompts/search_knowledge_tool.md        description of the search_knowledge tool
 #   prompts/end_session_tool.md             description of the end_session tool
+#   prompts/move_around_tool.md             description of the move_around tool
+#   prompts/follow_tool.md                  description of the follow_person tool
 #   prompts/transcription_openai.md         OpenAI input-transcriber steering prompt
 #   prompts/transcription_whisper.md        local wake-word Whisper initial_prompt
 #   prompts/identity_context*.md            face-ID "you are talking to <name>" line
@@ -40,18 +42,19 @@ listener:                  # the always-on wake listener (harp/listener)
 
 push_to_talk:              # on-demand hold-to-talk (harp/interaction/push_to_talk)
   # A manual, per-session mode for noisy places (an expo hall). enabled: true
-  # only ARMS the key — HARP still starts hands-free (the listener + wave above
-  # keep working). Press the key while idle to START a session whose mic is
-  # gated: the model hears you only WHILE the key is held, so crowd noise can't
-  # false-wake it or bleed into its turn-taking. When that session ends, HARP
-  # goes back to hands-free listening automatically.
+  # (with exclusive: false) only ARMS the key — HARP still starts hands-free
+  # (the listener + wave above keep working). Press the key while idle to
+  # START a session whose mic is gated: the model hears you only WHILE the key
+  # is held, so crowd noise can't false-wake it or bleed into its turn-taking.
+  # When that session ends, HARP goes back to hands-free listening.
   enabled: true
   key: ctrl+shift+m        # hold this to talk: a key (space, enter, m) or a '+'-combo (ctrl+shift+m)
-  # Push-to-talk ONLY. true = the model NEVER hears the mic unless the key is
-  # held — every session is gated, even ones woken hands-free (wave / wake
-  # word / loud sound), which with false stream normally (only press-started
-  # sessions are gated). Wakes themselves still work either way; in exclusive
-  # mode the model just gets silence until you hold the key.
+  # Push-to-talk ONLY. true = the button is the ONLY way a conversation
+  # starts: wake words, loud sounds, and waves DON'T wake HARP (the wake
+  # listener isn't even started, and the orchestrator vetoes every non-button
+  # wake request), and the model NEVER hears the mic unless the key is held.
+  # false = hands-free wakes keep working, and only press-STARTED sessions
+  # have their mic gated to the key.
   exclusive: true
   # The ESP32 BLE arcade button can't hold keys down — its firmware re-TAPS the
   # whole combo ~2.5x/s while pressed (~95ms down, ~300ms up; measured with
@@ -60,6 +63,10 @@ push_to_talk:              # on-demand hold-to-talk (harp/interaction/push_to_ta
   # Must be longer than the ~0.3s tap gap; the mic closes this long after the
   # real release. Set 0 if the talk key is a plain keyboard key you hold.
   release_debounce_seconds: 0.7
+  # While idle, HARP invites passers-by every this many seconds with the canned
+  # "Please hold the green button to talk to me" clip (no cloud session spent).
+  # Needs status_voice enabled below. 0 = never prompt.
+  idle_prompt_seconds: 45
 
 camera:                    # the shared camera (harp/vision/camera)
   # Feeds gestures, face-ID, presence, and the memory helper's snapshots.
@@ -69,13 +76,66 @@ camera:                    # the shared camera (harp/vision/camera)
   #             full agent, set webcam here so motion keeps the RealSense.
   # realsense = RealSense only (camera subsystems stay off if it's missing)
   # webcam    = plain webcam only
+  # This is just the startup default — the dashboard's Camera source dropdown
+  # (auto / RealSense / laptop webcam / USB webcam) switches it live, no
+  # restart needed.
   backend: auto
-  webcam_index: 0          # which webcam, when several are attached
+  webcam_index: 0          # the laptop's own/built-in webcam
+  usb_webcam_index: 1      # a second, USB-attached webcam (dashboard "USB webcam")
+
+motion:                    # the wheeled base's "move around" patrol (harp/motion)
+  # The live agent's move_around tool and the dashboard's "move around" button
+  # both drive the same bounded stall patrol: short forward steps with
+  # look-around pauses, a 90° turn at each corner, `laps` full lap(s), then it
+  # stops by itself. Motion is timed dead reckoning — calibrate sec_per_meter /
+  # sec_per_90_turn in place and keep side_length comfortably inside the stall.
+  # Serial ports: find them with `uv run python -m harp.motion --list-ports`.
+  # They are opened when a patrol starts and released when it ends, so the
+  # standalone motion tools (python -m harp.motion, autonomous_patrol) can use
+  # the same adapters whenever a patrol isn't running — but don't run those
+  # WHILE a patrol is active. enabled: false (e.g. on a dev machine without the
+  # motors) removes the tool and the dashboard button entirely for that run.
+  enabled: true
+  left_port: COM4
+  right_port: COM5
+  base_speed: 350          # forward wheel rpm
+  turn_speed: 300          # in-place turn rpm
+  side_length: 3.0         # stall boundary side, meters
+  segments: 2              # stops per side (drive → pause → look around)
+  sec_per_meter: 3.5       # seconds to cover one meter at base_speed
+  sec_per_90_turn: 3.8     # seconds to pivot 90 degrees at turn_speed
+  laps: 1                  # laps per start — bounded on purpose (~2 min/lap)
+  # "Follow me" (harp/motion/follow): the follow_person tool drives the base
+  # toward a person face-ID RECOGNIZES (enrolled under people/) — it refuses
+  # strangers, stops the moment anyone asks, and ends by itself when it loses
+  # sight of the person. The shared camera has no depth stream, so distance is
+  # judged by face size: the face box height as a fraction of the frame
+  # (bigger face = closer). Calibrate by standing at the distance you want and
+  # reading the face box on the dashboard camera view.
+  follow_speed: 250        # forward rpm while following (gentler than patrol)
+  follow_turn_speed: 200   # in-place turn rpm while recentering
+  follow_far_frac: 0.14    # face smaller than this → too far, drive closer
+  follow_near_frac: 0.22   # face at least this tall → close enough, stop
+                           # (the wide band between the two = hysteresis: keep
+                           # doing whatever it was doing, no hunting)
+  follow_center_frac: 0.18 # no turning while the face center is within ±this
+                           # fraction of the frame width from center
+  follow_lost_seconds: 6.0 # unseen/unrecognized this long ends follow mode
 
 interaction:               # when a live session ends on its own (harp/interaction)
   # No face in view for this many continuous seconds ends the conversation
   # (face-ID doubles as presence). A face coming back resets the countdown.
   absence_timeout_seconds: 10
+  # SECOND, independent rule: nobody says anything (no user speech, no agent
+  # speech, no talk-button activity) for this many continuous seconds also
+  # ends the conversation. This is the safety net for sessions the face rule
+  # can't close — someone standing in frame who never talks (a false wake, or
+  # push-to-talk where the button is never pressed). Any word from either
+  # side restarts the full countdown. 0 = disable the silence rule.
+  # Which line plays on each kind of ending (walked off / went silent / the
+  # model hung up / provider closed) is set in the status rule book:
+  #   harp/orchestrator/status_rules.py
+  silence_timeout_seconds: 15
 
 filter_agent:              # two-agent noise/intent filtering (harp/voice/two_agent)
   # EXPERIMENTAL. For very loud rooms. When enabled, a FIRST realtime agent
@@ -114,8 +174,14 @@ status_voice:              # pre-recorded status announcements (harp/orchestrato
   # Canned lines that play WITHOUT the cloud model: "Starting up", "Connection
   # established" / "I can't reach the internet", "Going on standby", error
   # notices, "Shutting down". They make a live run legible — you HEAR what HARP
-  # is doing at boot, on errors, and when a conversation ends. Set false to run
-  # silently. Only English ('en') clips ship today.
+  # is doing at boot, on errors, and when a conversation ends. The push-to-talk
+  # idle invite ("Please hold the green button...", idle_prompt_seconds above)
+  # draws from the same clip set. Set false to run silently. Only English
+  # ('en') clips ship today.
+  # WHICH line plays at WHICH moment (each kind of session end, errors, boot,
+  # the idle invite) is the status RULE BOOK — edit it there, one commented map:
+  #   harp/orchestrator/status_rules.py
+  # The words themselves are re-rendered via scripts/generate_status_voice.py.
   enabled: true
   lang: en
 
@@ -155,3 +221,5 @@ dashboard:                 # the dev dashboard (harp/dashboard)
                             # from your phone/other PCs on the same Wi-Fi/LAN
                             # (app.py prints this machine's LAN IP at startup)
   port: 8787
+  open_browser: true        # pop the dashboard open in your default browser
+                            # at boot; set false for a headless/SSH run

@@ -21,10 +21,13 @@ A session that was woken hands-free (wave, wake word, loud sound) is *not*
 gated — `mic_open` returns True throughout it, so it streams normally. Only a
 press-started session holds the gate.
 
-**Exclusive mode** (`push_to_talk.exclusive` in harp.yaml) drops the per-session
-subtlety: the model hears the mic ONLY while the key is held, in every session,
-however it was woken. Hands-free wakes still open sessions, but the model gets
-digital silence until you hold the key.
+**Exclusive mode** (`push_to_talk.exclusive` in harp.yaml) makes the button the
+whole interface. Two things change, both wired in app.py: sessions START only
+from the button — the always-on wake listener isn't run at all, and the
+orchestrator's wake policy vetoes every non-button WakeRequested (waves
+included) — and the model hears the mic ONLY while the key is held, in every
+session. This class itself is unchanged by the flag beyond `mic_open`; the
+button-only waking lives in the orchestrator's `wake_allowed` policy.
 
 **Release debounce** (`push_to_talk.release_debounce_seconds`) exists for
 hardware talk buttons that can't hold: HARP's arcade button is an ESP32 BLE

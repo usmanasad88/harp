@@ -7,6 +7,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-tts/
 venv/
 *.egg-info/
 
@@ -41,3 +42,5 @@ current_output.txt
 # (the convention doc people/README.md is the one exception)
 people/*
 !people/README.md
+
+data/marker_output/

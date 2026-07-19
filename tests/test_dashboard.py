@@ -184,3 +184,118 @@ async def test_bad_voice_tuning_raises_error_not_crash():
             ))
             err = await _recv_type(client, "ErrorRaised")
             assert err["fields"]["where"] == "dashboard.voice_tuning"
+
+
+def _camera_source_getset(state):
+    """Mirrors app.py's get_camera_source/set_camera_source closures without
+    a real Camera: `select` gives (backend, device), and we report that
+    backend as "active" since there's no hardware here to confirm it."""
+
+    def get_source():
+        return {**state.snapshot(), "backend": None}
+
+    def set_source(source):
+        backend, _device = state.select(source)
+        return {**state.snapshot(), "backend": backend}
+
+    return get_source, set_source
+
+
+async def test_set_camera_source_applies_and_broadcasts():
+    """This wiring is what makes the dashboard's camera dropdown able to
+    switch the shared camera live — app.py only injects it when a camera
+    actually started this run (see get_camera_source=None test below)."""
+    from harp.config import CameraSourceState
+
+    bus = Bus()
+    state = CameraSourceState()
+    get_source, set_source = _camera_source_getset(state)
+    async with _build_server(
+        bus, "127.0.0.1", 0,
+        set_camera_source=set_source,
+        get_camera_source=get_source,
+    ) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            # A fresh connection is seeded with the current selection once.
+            seed = await _recv_type(client, "CameraSourceChanged")
+            assert seed["fields"]["source"] == "auto"
+
+            await client.send(json.dumps({"type": "SetCameraSource", "source": "usb_webcam"}))
+            echo = await _recv_type(client, "CameraSourceChanged")
+            assert echo["fields"]["source"] == "usb_webcam"
+            assert echo["fields"]["backend"] == "webcam"
+            assert state.source == "usb_webcam"  # applied server-side too
+
+
+async def test_bad_camera_source_raises_error_not_crash():
+    from harp.config import CameraSourceState
+
+    bus = Bus()
+    state = CameraSourceState()
+    get_source, set_source = _camera_source_getset(state)
+    async with _build_server(
+        bus, "127.0.0.1", 0,
+        set_camera_source=set_source,
+        get_camera_source=get_source,
+    ) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            await _recv_type(client, "CameraSourceChanged")  # initial seed
+            await client.send(json.dumps({"type": "SetCameraSource", "source": "bogus"}))
+            err = await _recv_type(client, "ErrorRaised")
+            assert err["fields"]["where"] == "dashboard.camera_source"
+
+
+async def test_camera_source_unavailable_when_no_camera_this_run():
+    """No camera started this run (app.py passes set_camera_source=None) —
+    the dropdown's write must fail cleanly, not crash the connection."""
+    bus = Bus()
+    async with _build_server(bus, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            await client.send(json.dumps({"type": "SetCameraSource", "source": "webcam"}))
+            err = await _recv_type(client, "ErrorRaised")
+            assert err["fields"]["where"] == "dashboard.camera_source"
+
+
+async def test_set_move_around_awaits_controller_and_relays_error_results():
+    """SetMoveAround is the one write whose setter is ASYNC and whose failures
+    come back as an {"error"} result rather than an exception (the controller
+    publishes the success event itself) — a forgotten await or a swallowed
+    error result here would fail silently in production."""
+    calls = []
+
+    async def set_move_around(active):
+        calls.append(active)
+        return {"error": "could not open the base motor ports"}
+
+    bus = Bus()
+    async with _build_server(
+        bus, "127.0.0.1", 0,
+        set_move_around=set_move_around,
+        get_move_around=lambda: {"active": False},
+    ) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            # A fresh connection is seeded so the page can show the button.
+            seed = await _recv_type(client, "MoveAroundChanged")
+            assert seed["fields"]["active"] is False
+
+            await client.send(json.dumps({"type": "SetMoveAround", "active": True}))
+            err = await _recv_type(client, "ErrorRaised")
+            assert err["fields"]["where"] == "dashboard.move_around"
+            assert "motor ports" in err["fields"]["message"]
+            assert calls == [True]
+
+
+async def test_move_around_unavailable_when_motion_disabled():
+    """motion.enabled false (app.py passes set_move_around=None) — the write
+    must fail cleanly, not crash the connection."""
+    bus = Bus()
+    async with _build_server(bus, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            await client.send(json.dumps({"type": "SetMoveAround", "active": True}))
+            err = await _recv_type(client, "ErrorRaised")
+            assert err["fields"]["where"] == "dashboard.move_around"

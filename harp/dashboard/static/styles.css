@@ -66,6 +66,7 @@ main {
 
 .mute-bar {
   display: flex;
+  gap: 12px;
 }
 
 .mute-btn {
@@ -93,6 +94,11 @@ main {
   background: rgba(224, 87, 91, 0.18);
   border-color: var(--red);
   color: var(--red);
+}
+.mute-btn.moving {
+  background: rgba(224, 179, 65, 0.18);
+  border-color: var(--amber);
+  color: var(--amber);
 }
 
 .grid-3 {
@@ -175,6 +181,22 @@ main {
 }
 .tool-row .name { font-weight: 600; }
 .tool-row pre { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; color: var(--dim); font-size: 12px; }
+
+.camera-source-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.camera-source-row label { color: var(--dim); }
+.camera-source-row select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  flex: 1;
+}
 
 .camera-img {
   width: 100%;

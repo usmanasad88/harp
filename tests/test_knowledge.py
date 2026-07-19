@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 import harp.knowledge.tools as tools
+import harp.knowledge.web_search as web_search
 from harp.knowledge.retriever import Retriever, _chunk_markdown
 
 
@@ -61,14 +62,18 @@ def test_missing_data_dir_yields_empty_index(tmp_path):
 
 
 def test_declarations_per_provider():
-    (openai_decl,) = tools.declarations("openai")
-    assert openai_decl["type"] == "function"
-    assert openai_decl["name"] == tools.TOOL_NAME
-    assert openai_decl["parameters"]["required"] == ["query"]
+    knowledge_decl, web_decl = tools.declarations("openai")
+    assert knowledge_decl["type"] == "function"
+    assert knowledge_decl["name"] == tools.TOOL_NAME
+    assert knowledge_decl["parameters"]["required"] == ["query"]
+    assert web_decl["type"] == "function"
+    assert web_decl["name"] == tools.WEB_SEARCH_TOOL_NAME
+    assert web_decl["parameters"]["required"] == ["query"]
 
     (gemini_decl,) = tools.declarations("gemini")
-    (fn,) = gemini_decl["function_declarations"]
+    fn, web_fn = gemini_decl["function_declarations"]
     assert fn["name"] == tools.TOOL_NAME
+    assert web_fn["name"] == tools.WEB_SEARCH_TOOL_NAME
 
     with pytest.raises(ValueError):
         tools.declarations("nope")
@@ -88,3 +93,58 @@ async def test_dispatch_searches_and_flags_no_matches(tmp_path, monkeypatch):
 async def test_dispatch_unknown_tool_reports_error_instead_of_raising():
     output = await tools.dispatch("fly_to_moon", {})
     assert "error" in output
+
+
+# A trimmed html.duckduckgo.com result page: one organic hit (redirect-wrapped
+# URL, entities, bold tags), one ad (routes through y.js), one hit without a
+# snippet. The regex parse fails *silently* (returns junk or []) if any of
+# this drifts, which is exactly why it's pinned here.
+_DDG_PAGE = """
+<div class="result results_links results_links_deep web-result">
+  <a rel="nofollow" class="result__a"
+     href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fnust.edu.pk%2Fadmissions&amp;rut=abc123">
+     NUST <b>Admissions</b> &amp; Aid</a>
+  <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fnust.edu.pk%2Fadmissions">
+     Apply to <b>NUST</b> &mdash; deadlines &amp; fees.</a>
+</div>
+<div class="result result--ad">
+  <a rel="nofollow" class="result__a" href="https://duckduckgo.com/y.js?ad_provider=x">Buy Now</a>
+  <a class="result__snippet" href="#">Sponsored thing.</a>
+</div>
+<div class="result">
+  <a rel="nofollow" class="result__a" href="https://example.com/plain">Plain link</a>
+</div>
+"""
+
+
+def test_web_search_parse_unwraps_urls_skips_ads_and_pairs_snippets():
+    first, second = web_search._parse(_DDG_PAGE, k=5)
+    assert first == {
+        "title": "NUST Admissions & Aid",
+        "url": "https://nust.edu.pk/admissions",
+        "snippet": "Apply to NUST — deadlines & fees.",
+    }
+    # The ad is skipped; the snippetless result still comes through, and its
+    # snippet is NOT stolen from a neighbouring block.
+    assert second["url"] == "https://example.com/plain"
+    assert second["snippet"] == ""
+
+
+def test_web_search_parse_respects_k():
+    results = web_search._parse(_DDG_PAGE, k=1)
+    assert len(results) == 1
+
+
+async def test_dispatch_web_search_offline_degrades_to_error_payload(monkeypatch):
+    def _no_network(query, k=3, timeout=6.0):
+        raise web_search.WebSearchError("web search unavailable: no network")
+
+    monkeypatch.setattr(web_search, "search", _no_network)
+    output = await tools.dispatch(tools.WEB_SEARCH_TOOL_NAME, {"query": "weather"})
+    assert output == {"error": "web search unavailable: no network"}
+
+
+async def test_dispatch_web_search_no_hits_returns_note(monkeypatch):
+    monkeypatch.setattr(web_search, "search", lambda query, k=3, timeout=6.0: [])
+    output = await tools.dispatch(tools.WEB_SEARCH_TOOL_NAME, {"query": "zeppelin"})
+    assert output == {"note": "no results found"}

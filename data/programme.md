@@ -1,49 +1,38 @@
-# Programme | Pakistan's Official National Platform for AI
+# Indus RAS Expo 2026 — Event Programme and Schedule
 
-> Source: https://indusrasexpo.gov.pk/programme
-> Fetched: 2026-06-30
+Full schedule, agenda and timetable of the expo. It runs Wednesday 22nd and Thursday 23rd July 2026 at the Pakistan China Friendship Centre, Islamabad. Opening hours and timings: Day 1 morning is the invitation-only opening ceremony; Day 1 afternoon (1:00 pm – 6:00 pm) and all of Day 2 (9:00 am – 6:00 pm) are open to all visitors.
 
-Indus RAS Expo 2026
+> Source: official event programme (final, 15 July) and https://indusrasexpo.gov.pk/programme
 
-# Event Programme
-22 nd & 23 rd July 2026
+## Day 1 morning — opening ceremony, Wednesday 22 July 2026 (by invitation)
 
-### PROGRAMME - WEDNESDAY 22 nd JULY 2026
-| Time | Details |
-| DAY 1 WEDNESDAY 22 nd JULY 2026 📍 Venue Pakistan China Friendship Center, Islamabad ⏰ Timing (8:30 – 11:30 ) 🏛 Event INDUS RAS EXPO 2026 |
-| Programme |
-| 08:30 | Gates Open |
-| 08:30 – 10:00 | Arrival of Guests / Distinguished Visitors |
-| 10:00 – 10:15 | Closure of Entrances |
-| 10:20 | Arrival of the Honorable Chief Guest |
-| 10:20 – 10:35 | Visit of Exhibitors / Booths [on Ground Floor] |
-| 10:40 – 10:42 | National Anthem |
-| 10:43 – 10:45 | Recitation from the Holy Quran |
-| 10:45 – 10:55 | Welcome address by Honorable Federal Minister of MoITT |
-| 10:55 – 11:00 | Launch of Indus RAS Video |
-| 11:00 – 11:20 | Address by the Honorable Chief Guest |
-| 11:25 – 11:30 | Official Group Photograph |
-| 11:30 | Departure of Honorable Chief Guest |
+- 8:30 am — Gates open; arrival of guests and distinguished visitors
+- 10:00 – 10:15 am — Closure of entrances
+- 10:20 am — Arrival of the Honourable Chief Guest, followed by a visit of exhibitor booths
+- 10:40 am — National Anthem and recitation from the Holy Quran
+- 10:45 – 10:55 am — Welcome address by the Honourable Federal Minister of IT and Telecom (MoITT)
+- 10:55 – 11:00 am — Launch of the Indus RAS video
+- 11:00 – 11:20 am — Address by the Honourable Guest of Honour
+- 11:20 – 11:40 am — Address by the Honourable Chief Guest, followed by departure
 
-### PROGRAMME - WEDNESDAY 22 nd JULY 2026 (2nd HALF)
-| Time | Activity / Details |
-| DAY 1 WEDNESDAY 22 nd JULY 2026 📍 Venue Pakistan China Friendship Center, Islamabad ⏰ Timing (01:00 – 06:00 ) |
-| 13:30 – 14:30 | Little Minds, Big Ideas: Kids Reimagining Education for the Tech Generation |
-| 14:30 – 15:30 | Introduction to Robotics & the Global Robotics Industry |
-| 15:00 – 16:30 | From Classroom to Innovation: Building the Next Generation of Robotics Startups |
-| 13:30 – 14:30 | Robotics in Pakistan: Past, Present & Progressive Future for Pakistan [4P] |
-| 15:00 – 16:00 | Robotics Ecosystem in Pakistan: Strategic and Industrial Adoption, Innovation, HR and Infrastructure Development |
-| 15:00 - 17:00 | Team compete in an exciting live Robotics battle, showcasing Innovation & Autonomous Technologies |
-| 13:00 – 18:00 | Open to All Visitors |
+## Day 1 afternoon schedule — Wednesday 22 July 2026, open to all visitors 1:00 pm – 6:00 pm
 
-### PROGRAMME - THURSDAY 23 rd JULY 2026
-| Time | Activity / Details |
-| DAY 2 THURSDAY 23 rd JULY 2026 📍 Venue Pakistan China Friendship Center, Islamabad ⏰ Timing (9:00 – 18:00 ) |
-| 09:00 – 16:00 | A live, moderator-led Audience activity using smartphones & real-time polling to make technology concepts engaging, interactive & memorable |
-| 09:00 – 16:00 | A fully immersive, 60 minutes workshop. Participants of all ages are welcome to experience the thrill of building / programming a robot |
-| 10:00 – 11:00 | Beyond the Horizon - Youth Leading the Tech Revolution |
-| 15:30 – 16:30 | Policy framework for Robotics and Automation |
-| 10:00 – 16:00 | A panel of distinguished industry experts and judges will evaluate the exhibited products and recognize the best innovations across various competition categories. |
-| 10:00 – 16:00 | Teams compete in an exciting live Robotic battle, showcasing Innovation & Autonomous Technologies |
-| 17:30 – 18:00 | Address by the Chief Guest and award ceremony Innovation Challenge, RoboWars |
-| 09:00 – 18:00 | Open to All Visitors |
+- 1:00 – 2:00 pm — Plenary session: Robotics in Pakistan — Past, Present and Progressive Future for Pakistan
+- 1:30 – 2:30 pm — Panel discussion: Little Minds, Big Ideas — Kids Reimagining Education for the Tech Generation
+- 2:00 – 3:00 pm — Robotics and automation hands-on workshop: a fully immersive 60-minute workshop where participants of all ages build and program a robot
+- 2:00 – 5:00 pm — RoboWars competition (with intervals): teams compete in live robotic battles
+- 2:00 – 6:00 pm — Live drone show (with intervals)
+- 3:00 – 4:00 pm — Plenary session: Robotics Ecosystem in Pakistan — Strategic and Industrial Adoption, Innovation, HR and Infrastructure Development
+- 3:30 – 4:30 pm — Panel discussion: Introduction to Robotics and the Global Robotics Industry
+- 5:00 – 6:00 pm — Plenary session: Policy Framework for Robotics and Automation
+- 1:00 – 6:00 pm — Expo exhibition open to all visitors
+
+## Day 2 schedule — Thursday 23 July 2026, open to all visitors 9:00 am – 6:00 pm
+
+- 9:00 am – 4:00 pm — Live audience and tech engagement activity (with intervals): a moderator-led activity using smartphones and real-time polling
+- 9:00 am – 4:00 pm — Robotics and automation hands-on workshop (with intervals): 60-minute sessions, participants of all ages welcome
+- 11:00 am – 12:00 pm — Panel discussion: From Classroom to Innovation — Building the Next Generation of Robotics Startups
+- 1:00 – 2:00 pm — Panel discussion: Beyond the Horizon — Youth Leading the Tech Revolution
+- 3:00 – 4:00 pm — Panel discussion: Building an AI-Ready Nation — The Role of Government, Academia and Industry
+- 10:00 am – 6:00 pm — RoboWars competition (with intervals) and live drone show (with intervals)
+- 9:00 am – 6:00 pm — Expo exhibition open to all visitors

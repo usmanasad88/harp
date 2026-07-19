@@ -53,6 +53,8 @@ async def end_session(bus: Bus, arguments: dict) -> Any:
     """Request the orchestrator close the live session; ack back to the model."""
     reason = str(arguments.get("reason", "")).strip() or "no reason given"
     await bus.publish(
-        EndOfInteractionDetected(reason=f"agent ended the session ({reason})")
+        EndOfInteractionDetected(
+            reason=f"agent ended the session ({reason})", cause="agent"
+        )
     )
     return {"ok": True, "note": "Ending the session now. Goodbye."}

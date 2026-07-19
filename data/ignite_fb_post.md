@@ -1,19 +1,7 @@
-# Call for Startup Applications | Indus RAS Expo 2026
+# Ignite startup call — Indus RAS Expo 2026
 
-> Source: Facebook post (Ignite / Ministry of IT & Telecom)
+Ignite National Technology Fund, under the Ministry of IT and Telecom, invited innovative Pakistani startups building Robotics and Autonomous Systems to showcase their products and working prototypes at Indus RAS Expo 2026 — an opportunity to connect with industry leaders, engage potential investors, and gain national visibility among public- and private-sector stakeholders. The application deadline was 24 June 2026 (applications are now closed); selected startups exhibit at the expo on 22–23 July 2026 in Islamabad.
 
-Are you building the future of **Robotics and Autonomous Systems** in Pakistan?
+Partners in the call included the Ministry of IT and Telecom and the National Incubation Centres of Peshawar, Islamabad, Faisalabad, Lahore, Aerospace Technologies, Hyderabad, Karachi and Quetta, plus Tech Destination Pakistan.
 
-Ignite, under the Ministry of IT & Telecom, invites innovative startups to showcase their cutting-edge solutions at **Indus RAS Expo 2026**, Pakistan's premier exhibition dedicated to Robotics and Autonomous Systems.
-
-This is your opportunity to present your product or working prototype, connect with industry leaders, engage with potential investors, and gain national visibility among key stakeholders from the public and private sectors.
-
-- 📅 **Event Dates:** July 2026
-- 📍 **Venue:** Islamabad, Pakistan
-- ⏳ **Application Deadline:** 24 June 2026
-
-Scan the QR code and apply today: <https://forms.gle/27zEfMY9ZZiQz8aj8>
-
-**Tags:** #IndusRASExpo2026 #IgnitePakistan #MoITT #StartupPakistan #Robotics #AutonomousSystems #DeepTech #Innovation #Technology #Startups #DigitalPakistan #FutureTech #AI #Drones #TechInnovation #StartupEcosystem
-
-**Partners:** Ministry of IT & Telecom; National Incubation Center, Peshawar; NIC Islamabad; NIC Faisalabad; National Incubation Center Lahore; National Incubation Center for Aerospace Technologies; National Incubation Center, Hyderabad; National Incubation Center, Karachi; Tech Destination Pakistan; National Incubation Center Quetta
+> Source: Facebook post by Ignite / Ministry of IT & Telecom

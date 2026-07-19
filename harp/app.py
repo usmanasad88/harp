@@ -7,15 +7,18 @@ subsystem can be commented out here and the rest still runs — that is the
 modularity guarantee, and the recommended way to bring subsystems online one at
 a time.
 
-Contrast with `python -m harp` (__main__.py), which runs ONLY the bare voice
-session for quick manual testing. `python -m harp.app` is the full supervised
-agent — currently the subsystems that exist: orchestrator + the real voice
+`python -m harp` (__main__.py) is the CLI in front of this module: by default
+it runs THIS full supervised agent; `--voice-only` is a lightweight fallback
+that runs ONLY the bare voice session (no bus/orchestrator/dashboard/vision)
+for a quick manual smoke test. `python -m harp.app` runs the same full agent
+directly. Currently the subsystems that exist: orchestrator + the real voice
 session (VoiceBridge with the search_knowledge tool), wake listener, camera +
 gestures + face-ID, the wave→wake trigger engine, the interaction end-rules
 (face-ID presence: no face for a while closes the session), and the dashboard
 (host/port from harp.yaml's `dashboard:` section — localhost-only by default,
 or LAN-visible for phone/other-PC access; it also serves the end-user kiosk
-page at /user) all sharing one bus. A wake (wake
+page at /user, and pops open in your browser at boot unless
+`dashboard.open_browser: false`) all sharing one bus. A wake (wake
 word, loud sound, or wave) opens a real conversation, and the person walking
 off ends it.
 
@@ -24,6 +27,14 @@ connectivity / standby / error / shutdown lines, played from local clips. So is
 the per-run session log (core/session_log): one JSONL timeline per run — a
 settings/model header, every bus event, every module's log lines — written to
 .harp/logs/ for post-hoc debugging (harp.yaml `session_log:`).
+
+The wheeled base's "move around" patrol (harp/motion, harp.yaml `motion:`) is
+wired here too when enabled: one MoveAroundController owns the motors, shared
+by the live model's move_around tool and the dashboard's button. So is follow
+mode (harp/motion/follow, the follow_person tool): camera-guided driving
+toward a person face-ID recognizes — known people only — with its own canned
+status announcements; conflict callbacks keep it and the patrol from holding
+the motors at once.
 
 Long-term memory (harp/memory, harp.yaml `memory:`) is wired here too: the
 per-interaction transcript logger, the summarizer that turns each finished
@@ -50,6 +61,7 @@ import sys
 
 from . import audio_control
 from .config import (
+    CAMERA_SOURCE_CHOICES,
     FALLBACK_IDENTITY_CONTEXT,
     FALLBACK_IDENTITY_CONTEXT_WITH_NOTES,
     GUESTBOOK_FILE,
@@ -57,6 +69,7 @@ from .config import (
     PEOPLE_STORE,
     REPO_ROOT,
     STATUS_VOICE_DIR,
+    CameraSourceState,
     VoiceTuning,
     build_filter_config,
     build_session_config,
@@ -70,7 +83,8 @@ from .core.bus import Bus
 from .core.session_log import SessionLog
 from .dashboard.server import serve as serve_dashboard
 from .interaction import session_tools
-from .interaction.end_rules import EndOfInteractionMonitor
+from .interaction.end_rules import EndOfInteractionMonitor, SilenceMonitor
+from .interaction.idle_prompt import IdlePrompt
 from .interaction.push_to_talk import PushToTalk
 from .knowledge import tools as knowledge_tools
 from .listener.listener import AlwaysOnListener
@@ -80,7 +94,11 @@ from .memory.context import ContextWriter
 from .memory.logger import InteractionLogger
 from .memory.store import MemoryStore
 from .memory.summarizer import MemorySummarizer
+from .motion import tools as motion_tools
+from .motion.controller import MoveAroundController
+from .motion.follow import FollowController
 from .orchestrator.orchestrator import Orchestrator
+from .orchestrator.status_rules import line_for
 from .orchestrator.status_voice import StatusVoice
 from .triggers.engine import TriggerEngine
 from .vision import describe as describe_tool
@@ -174,6 +192,31 @@ async def run_app(provider_name: str = "gemini") -> None:
         )
         camera = None
 
+    # The dashboard's camera-source dropdown (auto/realsense/webcam/
+    # usb_webcam) — seeded from harp.yaml `camera:`, mutated at runtime by
+    # picking a different source. Only meaningful when a camera actually
+    # started this run; see get_camera_source/set_camera_source below.
+    camera_source = CameraSourceState(
+        source=(
+            settings.camera.backend
+            if settings.camera.backend in CAMERA_SOURCE_CHOICES
+            else "auto"
+        ),
+        webcam_index=settings.camera.webcam_index,
+        usb_webcam_index=settings.camera.usb_webcam_index,
+    )
+
+    def get_camera_source() -> dict:
+        snapshot = camera_source.snapshot()
+        snapshot["backend"] = camera.active_backend if camera is not None else None
+        return snapshot
+
+    def set_camera_source(source: str) -> dict:
+        backend, device = camera_source.select(source)  # raises ValueError on bad input
+        if camera is not None:
+            camera.request_switch(backend, device)
+        return get_camera_source()
+
     # Built once so the same instances both run (publish GestureDetected /
     # PersonIdentified) and contribute what they see to the dashboard's
     # camera-view overlay.
@@ -250,6 +293,80 @@ async def run_app(provider_name: str = "gemini") -> None:
         template = load_identity_context()
         return format_prompt(template, FALLBACK_IDENTITY_CONTEXT, name=name)
 
+    # Canned status narration (boot / connectivity / standby / error / shutdown,
+    # and follow mode's announcements below), played from local clips when the
+    # cloud voice can't be. Disabled → the orchestrator runs silently; the boot
+    # connectivity probe is only wired when narration is on (its only consumer
+    # is the "connection established"/"no internet" line).
+    status_voice = (
+        StatusVoice(STATUS_VOICE_DIR, lang=settings.status_voice.lang)
+        if settings.status_voice.enabled
+        else None
+    )
+
+    # The wheeled base's "move around" patrol (harp.yaml `motion:`): one
+    # controller owns the motors; the live model's move_around tool and the
+    # dashboard's button both land on it. Disabled = no tool, no button — the
+    # ports are never touched, so a dev machine without the hardware just runs.
+    # The conflict callback (resolved at call time — `follow` is built just
+    # below) refuses a patrol while follow mode holds the motors, and vice
+    # versa, so the two can never fight over the serial ports.
+    move_around = (
+        MoveAroundController(
+            bus,
+            settings.motion,
+            conflict=lambda: (
+                "follow mode is on — stop following first"
+                if follow is not None and follow.active
+                else None
+            ),
+        )
+        if settings.motion.enabled
+        else None
+    )
+    if move_around is not None:
+        print(
+            f"Move around armed: base motors on {settings.motion.left_port}/"
+            f"{settings.motion.right_port} (agent tool + dashboard button)."
+        )
+
+    # "Follow me" (harp/motion/follow, same harp.yaml `motion:` section): the
+    # other use of the base motors — drive toward a person face-ID RECOGNIZES,
+    # steering to keep their face centered and stopping when close. Needs the
+    # motors and eyes both: without a camera (face-ID off), nobody can ever be
+    # "known", so the tool isn't offered at all.
+    announce_tasks: set[asyncio.Task] = set()
+
+    def follow_announce(moment: str) -> None:
+        """Fire the canned clip the rule book maps to "follow.<moment>",
+        without blocking the caller on playback (StatusVoice serializes and
+        swallows failures on its own)."""
+        line = line_for(f"follow.{moment}")
+        if status_voice is None or line is None:
+            return
+        task = asyncio.create_task(status_voice.play(line))
+        announce_tasks.add(task)  # keep a strong ref until playback finishes
+        task.add_done_callback(announce_tasks.discard)
+
+    follow = None
+    if settings.motion.enabled and camera is not None and face_id is not None:
+        follow = FollowController(
+            bus,
+            settings.motion,
+            latest_frame=camera.latest,
+            current_person=lambda: face_id.current,
+            person_in_front=lambda pid: (
+                face_id.current is not None and face_id.current.person_id == pid
+            ),
+            announce=follow_announce,
+            conflict=lambda: (
+                "the move-around patrol is running — stop moving first"
+                if move_around is not None and move_around.active
+                else None
+            ),
+        )
+        print("Follow mode armed: follow_person tool (known people only).")
+
     def make_session_config():
         # Noise/VAD tuning (voice_tuning, below) is stamped onto this session
         # too — the single-agent bridge owns a real mic just like the filter
@@ -265,6 +382,10 @@ async def run_app(provider_name: str = "gemini") -> None:
             config.tools += memory_tools.declarations(provider_name)
         if memory_agent is not None and camera is not None:
             config.tools += describe_tool.declarations(provider_name)
+        if move_around is not None:
+            config.tools += motion_tools.declarations(provider_name)
+        if follow is not None:
+            config.tools += motion_tools.follow_declarations(provider_name)
         return config
 
     async def dispatch(name: str, arguments: dict):
@@ -280,6 +401,14 @@ async def run_app(provider_name: str = "gemini") -> None:
             if memory_agent is None:
                 return {"error": "the vision helper is not available this run"}
             return await describe_tool.describe_scene(memory_agent, clean_snapshot, arguments)
+        if name == motion_tools.TOOL_NAME:
+            if move_around is None:
+                return {"error": "moving around is not available this run"}
+            return await motion_tools.move_around(move_around, arguments)
+        if name == motion_tools.FOLLOW_TOOL_NAME:
+            if follow is None:
+                return {"error": "following is not available this run"}
+            return await motion_tools.follow_person(follow, arguments)
         return await knowledge_tools.dispatch(name, arguments)
 
     # Push-to-talk (harp.yaml push_to_talk.enabled): arms a talk key. It runs
@@ -301,6 +430,12 @@ async def run_app(provider_name: str = "gemini") -> None:
     # The push-to-talk gate applies to whichever agent owns the mic: the plain
     # bridge in single-agent mode, or the filter agent in two-agent mode.
     ptt_gate = (lambda: push_to_talk.mic_open) if push_to_talk is not None else None
+
+    # Exclusive push-to-talk = the button is the WHOLE interface: sessions
+    # start only from the button (the orchestrator's wake policy below vetoes
+    # wave / wake-word / loud-sound requests, and the always-on listener isn't
+    # even started), and the model never hears the mic unless the key is held.
+    exclusive_ptt = push_to_talk is not None and settings.push_to_talk.exclusive
 
     # Live-tunable noise/VAD knobs (loudness gate + server-VAD + noise
     # reduction), seeded from harp.yaml and adjustable on the dashboard while
@@ -351,16 +486,6 @@ async def run_app(provider_name: str = "gemini") -> None:
             near_field_level=lambda: voice_tuning.near_field_level,
         )
 
-    # Canned status narration (boot / connectivity / standby / error / shutdown),
-    # played from local clips when the cloud voice can't be. Disabled → the
-    # orchestrator runs silently; the boot connectivity probe is only wired when
-    # narration is on (its only consumer is the "connection established"/"no
-    # internet" line).
-    status_voice = (
-        StatusVoice(STATUS_VOICE_DIR, lang=settings.status_voice.lang)
-        if settings.status_voice.enabled
-        else None
-    )
     orchestrator = Orchestrator(
         bus,
         provider_name,
@@ -369,6 +494,9 @@ async def run_app(provider_name: str = "gemini") -> None:
         voice_bridge=voice_bridge,
         status_voice=status_voice,
         connectivity_check=_internet_reachable if status_voice is not None else None,
+        # Button-only wake policy in exclusive push-to-talk; None = every
+        # detector's WakeRequested is honored while STANDBY, as always.
+        wake_allowed=(lambda reason: reason == "button") if exclusive_ptt else None,
     )
 
     dashboard_host = dashboard_bind_host(settings.dashboard.bind)
@@ -413,12 +541,23 @@ async def run_app(provider_name: str = "gemini") -> None:
             # whichever agent currently owns the mic (plain bridge or filter).
             set_voice_tuning=voice_tuning.apply,
             get_voice_tuning=voice_tuning.snapshot,
+            # The camera-source dropdown only makes sense when a camera
+            # actually started this run (mirrors snapshot=None above).
+            set_camera_source=set_camera_source if camera is not None else None,
+            get_camera_source=get_camera_source if camera is not None else None,
+            # The move-around patrol button (mirrors the same pattern): only
+            # wired when harp.yaml motion.enabled. The controller — not the
+            # server — publishes MoveAroundChanged, since the agent tool and
+            # the lap finishing on its own must announce through it too.
+            set_move_around=move_around.set_active if move_around is not None else None,
+            get_move_around=move_around.snapshot if move_around is not None else None,
             # Seeds for the end-user page (/user): the bus never replays, so a
             # fresh/reconnected kiosk gets the current state + talk-key hold.
             get_app_state=lambda: orchestrator.state.value,
             get_talk_key_held=(
                 (lambda: push_to_talk.held) if push_to_talk is not None else None
             ),
+            open_browser=settings.dashboard.open_browser,
         ),
         "orchestrator": orchestrator.run(),
         # Closes a live session when the person walks off: face-ID's presence
@@ -431,6 +570,13 @@ async def run_app(provider_name: str = "gemini") -> None:
             is_present=(lambda: face_id.current is not None) if face_id is not None else None,
         ).run(),
     })
+    if settings.interaction.silence_timeout_seconds > 0:
+        # Second end rule: a session where NOBODY says anything for the whole
+        # window closes too — the net for sessions face-presence keeps open
+        # (someone standing in frame who never talks / never presses the button).
+        runners["silence_rules"] = SilenceMonitor(
+            bus, silence_timeout=settings.interaction.silence_timeout_seconds
+        ).run()
     if interaction_logger is not None:
         # Records each conversation; the summarizer (below, only with a key)
         # turns finished transcripts into per-person memory.
@@ -441,15 +587,23 @@ async def run_app(provider_name: str = "gemini") -> None:
         # Pre-computes the wake briefing whenever face-ID sees someone while
         # idle, so identity_context() has it ready the instant a wake happens.
         runners["context_writer"] = context_writer.run()
-    if settings.listener.enabled:
+    if settings.listener.enabled and not exclusive_ptt:
         runners["listener"] = AlwaysOnListener(bus, settings.listener).run()
+    elif settings.listener.enabled:
+        # Exclusive push-to-talk: its wakes would all be vetoed anyway, so
+        # don't burn CPU transcribing the room (and don't hold the mic open).
+        logger.info(
+            "wake listener not started: exclusive push-to-talk (button-only wakes)"
+        )
     if push_to_talk is not None:
         # Runs alongside the listener: a press starts a gated session on demand,
         # and the session ending returns HARP to the hands-free listener/wave.
         if settings.push_to_talk.exclusive:
             print(
-                f"Push-to-talk ONLY: the model hears the mic exclusively while "
-                f"{settings.push_to_talk.key.upper()} is held."
+                f"Push-to-talk ONLY: the button ({settings.push_to_talk.key.upper()}) "
+                "is the only thing that starts a conversation — wake words, loud "
+                "sounds, and waves are ignored — and the model hears the mic "
+                "exclusively while it is held."
             )
         else:
             print(
@@ -457,6 +611,20 @@ async def run_app(provider_name: str = "gemini") -> None:
                 "start a hold-to-talk session."
             )
         runners["push_to_talk"] = push_to_talk.run()
+        idle_line = line_for("idle_prompt")  # the status rule book picks the clip
+        if (
+            status_voice is not None
+            and idle_line is not None
+            and settings.push_to_talk.idle_prompt_seconds > 0
+        ):
+            # While idle, periodically invite passers-by ("Please hold the
+            # green button to talk to me") — canned clip, no cloud session.
+            runners["idle_prompt"] = IdlePrompt(
+                bus,
+                status_voice,
+                line_id=idle_line,
+                interval_seconds=settings.push_to_talk.idle_prompt_seconds,
+            ).run()
     if gestures is not None:
         runners["gestures"] = gestures.run()
         # A wave is a wake condition; the engine turns GestureDetected into a
@@ -477,6 +645,13 @@ async def run_app(provider_name: str = "gemini") -> None:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if move_around is not None:
+            # A patrol mid-lap must not outlive the app: zero the wheels and
+            # release the serial ports before we leave (idempotent when idle).
+            await move_around.stop(note="app shutting down")
+        if follow is not None:
+            # Same for follow mode — whichever held the motors, they end zeroed.
+            await follow.stop(note="app shutting down")
         if camera is not None:
             await camera.stop()
         if session_log is not None:

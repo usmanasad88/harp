@@ -38,7 +38,10 @@ FILTER_PROMPT_FILE = PROMPTS_DIR / "filter_instructions.md"
 # Tool descriptions (the text that teaches the model when/how to call each
 # tool) and the two transcription-steering prompts — see prompts/README.md.
 SEARCH_TOOL_PROMPT_FILE = PROMPTS_DIR / "search_knowledge_tool.md"
+WEB_SEARCH_TOOL_PROMPT_FILE = PROMPTS_DIR / "web_search_tool.md"
 END_SESSION_PROMPT_FILE = PROMPTS_DIR / "end_session_tool.md"
+MOVE_AROUND_TOOL_PROMPT_FILE = PROMPTS_DIR / "move_around_tool.md"
+FOLLOW_TOOL_PROMPT_FILE = PROMPTS_DIR / "follow_tool.md"
 OPENAI_TRANSCRIBE_PROMPT_FILE = PROMPTS_DIR / "transcription_openai.md"
 WHISPER_PROMPT_FILE = PROMPTS_DIR / "transcription_whisper.md"
 # Context delivered into the live session at open, explaining why it woke and
@@ -98,21 +101,30 @@ class ListenerSettings:
 @dataclass
 class PushToTalkSettings:
     """Hold-a-key-to-talk mode (harp/interaction/push_to_talk). Meant for noisy
-    rooms: the mic only reaches the model while the key is held, and the first
-    press wakes HARP. When enabled, the always-on wake listener is not started.
-    Set both in harp.yaml (`push_to_talk:`)."""
+    rooms: the mic only reaches the model while the key is held, and a press
+    while idle wakes HARP. Non-exclusive, enabling this only ARMS the key —
+    the always-on listener and the wave trigger keep waking HARP hands-free.
+    `exclusive: true` makes the button the whole interface: hands-free wakes
+    are disabled (the listener isn't started; the orchestrator vetoes every
+    non-button wake) AND the model only ever hears the mic while the key is
+    held. Set in harp.yaml (`push_to_talk:`)."""
 
     enabled: bool = False
     key: str = "space"  # one key ('space', 'enter', 'm') or a '+'-combo ('ctrl+shift+m')
-    # Push-to-talk ONLY: the model hears the mic exclusively while the key is
-    # held — every session is gated, even ones woken hands-free (wave / wake
-    # word), which otherwise stream normally.
+    # Push-to-talk ONLY: the button becomes the sole way to start a session
+    # (no wake listener, wave/loud-sound wakes vetoed) and the model hears the
+    # mic exclusively while the key is held.
     exclusive: bool = False
     # For hardware talk buttons that re-TAP the combo while pressed instead of
     # holding it (HARP's ESP32 BLE arcade button taps ~2.5x/s): a key-up
     # re-pressed within this window counts as one continuous hold. Must exceed
     # the button's tap gap (~0.3s for the ESP32). 0 = off (a plain keyboard).
     release_debounce_seconds: float = 0.0
+    # While idle (STANDBY) with push-to-talk armed, replay the canned "Please
+    # hold the green button to talk to me" clip this often, so passers-by know
+    # how to start a conversation (harp/interaction/idle_prompt). Needs
+    # status_voice enabled. 0 = never prompt.
+    idle_prompt_seconds: float = 45.0
 
 
 @dataclass
@@ -121,11 +133,15 @@ class CameraSettings:
     the memory helper's snapshots. `backend: auto` uses a RealSense's color
     stream when one is plugged in, else the webcam; pin it to `webcam` when the
     standalone motion process should keep the RealSense (one process owns it),
-    or `realsense` to refuse the webcam fallback. `webcam_index` picks among
-    several attached webcams."""
+    or `realsense` to refuse the webcam fallback. `webcam_index` /
+    `usb_webcam_index` pick which attached webcam is "the laptop's own" vs.
+    "the USB one" for the dashboard's camera-source dropdown (see
+    CAMERA_SOURCE_CHOICES) — indices are OS-assigned per device, so adjust
+    them if the two are swapped on your machine."""
 
     backend: str = "auto"  # auto | realsense | webcam
-    webcam_index: int = 0
+    webcam_index: int = 0       # the laptop's own/built-in webcam
+    usb_webcam_index: int = 1   # a second, USB-attached webcam
 
 
 @dataclass
@@ -135,6 +151,13 @@ class InteractionSettings:
     # No face in frame for this many continuous seconds ends the session. Face-
     # ID doubles as presence; a returning face resets the countdown.
     absence_timeout_seconds: float = 10.0
+    # Independent second rule: nothing said in either direction (no user or
+    # agent speech, no talk-key activity) for this many continuous seconds also
+    # ends the session. Catches what the face rule can't — a person standing in
+    # frame who never talks (a false wake, or push-to-talk with the button
+    # never pressed). Any conversation activity restarts the full countdown.
+    # 0 = disable the silence rule.
+    silence_timeout_seconds: float = 15.0
 
 
 @dataclass
@@ -160,10 +183,13 @@ class StatusVoiceSettings:
 class DashboardSettings:
     """The dev dashboard (harp/dashboard). `bind: localhost` keeps it reachable
     only from this machine; `bind: network` exposes it to your phone/other PCs
-    on the same Wi-Fi/LAN at this machine's LAN IP (printed at startup)."""
+    on the same Wi-Fi/LAN at this machine's LAN IP (printed at startup).
+    `open_browser` pops the dashboard open in your default browser as soon as
+    it starts listening — set false for a headless/SSH run."""
 
     bind: str = "localhost"
     port: int = 8787
+    open_browser: bool = True
 
 
 @dataclass
@@ -210,6 +236,50 @@ class VoiceTuningSettings:
 
 
 @dataclass
+class MotionSettings:
+    """The wheeled base's "move around" stall patrol (harp/motion/controller):
+    one bounded drive → look-around → turn lap, started by the live model's
+    move_around tool or the dashboard's button, both landing on the same
+    controller. The two ports are the RMD-X8 serial adapters (find them with
+    `python -m harp.motion --list-ports`); they are opened when a patrol starts
+    and released when it ends, so the standalone motion CLIs can use them
+    whenever a patrol isn't running. Disabled by default — enable only on the
+    robot with the motor hardware attached; when disabled, neither the tool nor
+    the dashboard button exists that run.
+
+    The follow_* knobs drive the second thing the base can do: "follow me"
+    (harp/motion/follow, the live model's follow_person tool), which drives
+    toward a person face-ID recognizes, steering to keep their face in a
+    central box and stopping once they are close enough (face size as the
+    distance proxy — the shared camera has no depth)."""
+
+    enabled: bool = False
+    left_port: str = "COM4"
+    right_port: str = "COM5"
+    base_speed: int = 350        # forward wheel rpm
+    turn_speed: int = 300        # in-place turn rpm
+    side_length: float = 3.0     # stall boundary side, meters
+    segments: int = 2            # intermediate stops per side
+    sec_per_meter: float = 3.5   # seconds to cover one meter at base_speed
+    sec_per_90_turn: float = 3.8  # seconds to pivot 90 degrees at turn_speed
+    laps: int = 1                # laps per start — bounded on purpose
+    # "Follow me" mode (harp/motion/follow): camera-guided driving toward a
+    # KNOWN (face-ID-enrolled) person. The shared camera has no depth stream,
+    # so distance is judged by how large the face is in frame: the box height
+    # as a fraction of the frame height (bigger face = closer person).
+    follow_speed: int = 250        # forward rpm while following (gentler than patrol)
+    follow_turn_speed: int = 200   # in-place turn rpm while recentering
+    follow_far_frac: float = 0.14  # face box height below this → too far, drive closer
+    follow_near_frac: float = 0.22  # face box height at/above this → close enough, stop
+    # The central box: no turning while the face center is within ±this
+    # fraction of the frame width from center.
+    follow_center_frac: float = 0.18
+    # No sight of the person (no face at all, or face-ID stops recognizing
+    # them) for this many continuous seconds ends follow mode by itself.
+    follow_lost_seconds: float = 6.0
+
+
+@dataclass
 class MemorySettings:
     """Long-term interaction memory (harp/memory): a parallel Gemini Flash Lite
     helper agent that (a) summarizes each finished conversation into per-person
@@ -252,6 +322,7 @@ class Settings:
     status_voice: StatusVoiceSettings = field(default_factory=StatusVoiceSettings)
     session_log: SessionLogSettings = field(default_factory=SessionLogSettings)
     memory: MemorySettings = field(default_factory=MemorySettings)
+    motion: MotionSettings = field(default_factory=MotionSettings)
 
 
 def _section(cls, raw: object):
@@ -287,6 +358,7 @@ def load_settings(path: Path = SETTINGS_FILE) -> Settings:
         status_voice=_section(StatusVoiceSettings, data.get("status_voice")),
         session_log=_section(SessionLogSettings, data.get("session_log")),
         memory=_section(MemorySettings, data.get("memory")),
+        motion=_section(MotionSettings, data.get("motion")),
     )
 
 
@@ -378,6 +450,21 @@ def load_search_tool_description(path: Path = SEARCH_TOOL_PROMPT_FILE) -> str:
     return load_prompt(path, FALLBACK_SEARCH_TOOL_DESCRIPTION)
 
 
+FALLBACK_WEB_SEARCH_TOOL_DESCRIPTION = (
+    "Search the internet for current or general information. Use this ONLY "
+    "when search_knowledge returned nothing useful and the question is about "
+    "something outside the local documents (news, weather, general facts). "
+    "Query with a few concise English keywords. Base your spoken reply on the "
+    "returned snippets and keep it brief; if this returns nothing useful or an "
+    "error, say you could not find out rather than guessing."
+)
+
+
+def load_web_search_tool_description(path: Path = WEB_SEARCH_TOOL_PROMPT_FILE) -> str:
+    """The `web_search` tool's description (prompts/web_search_tool.md)."""
+    return load_prompt(path, FALLBACK_WEB_SEARCH_TOOL_DESCRIPTION)
+
+
 FALLBACK_END_SESSION_DESCRIPTION = (
     "End the current conversation and put HARP back on standby. Call this when "
     "the visitor says goodbye, says they're done, or asks you to stop or close "
@@ -389,6 +476,41 @@ FALLBACK_END_SESSION_DESCRIPTION = (
 def load_end_session_description(path: Path = END_SESSION_PROMPT_FILE) -> str:
     """The `end_session` tool's description (prompts/end_session_tool.md)."""
     return load_prompt(path, FALLBACK_END_SESSION_DESCRIPTION)
+
+
+FALLBACK_MOVE_AROUND_TOOL_DESCRIPTION = (
+    "Drive your wheeled base on one short patrol lap around your stall: short "
+    "forward steps with look-around pauses, a turn at each corner, then you "
+    "stop by yourself after about two minutes. Call it with action 'start' "
+    "when a visitor asks you to move around, patrol, or show how you move — "
+    "say something brief first, because you keep talking while you drive. "
+    "Call it with action 'stop' the MOMENT anyone asks you to stop moving. "
+    "Do not start it if someone is standing right in front of you."
+)
+
+
+def load_move_around_tool_description(path: Path = MOVE_AROUND_TOOL_PROMPT_FILE) -> str:
+    """The `move_around` tool's description (prompts/move_around_tool.md)."""
+    return load_prompt(path, FALLBACK_MOVE_AROUND_TOOL_DESCRIPTION)
+
+
+FALLBACK_FOLLOW_TOOL_DESCRIPTION = (
+    "Follow the person you are talking to: drive slowly toward them and keep "
+    "them in front of you as they walk, stopping whenever you are close "
+    "enough. This ONLY works for a person your face recognition knows — for "
+    "anyone else it returns an error, and you should say you can only follow "
+    "people you recognize. Call it with action 'start' when they ask you to "
+    "follow them or come with them; warn them to keep a safe distance from "
+    "other people and obstacles. Call it with action 'stop' the MOMENT anyone "
+    "asks you to stop — stopping is instant and always safe. It also stops by "
+    "itself when you lose sight of them. Never pretend to follow: if the tool "
+    "returns an error, say you cannot follow right now."
+)
+
+
+def load_follow_tool_description(path: Path = FOLLOW_TOOL_PROMPT_FILE) -> str:
+    """The `follow_person` tool's description (prompts/follow_tool.md)."""
+    return load_prompt(path, FALLBACK_FOLLOW_TOOL_DESCRIPTION)
 
 
 FALLBACK_OPENAI_TRANSCRIBE_PROMPT = (
@@ -699,6 +821,45 @@ class VoiceTuning:
         else:
             raise ValueError(f"unknown filter tuning field: {field!r}")
         return self.snapshot()
+
+
+# The dashboard's camera-source dropdown: `auto`/`realsense`/`webcam` mirror
+# CameraSettings.backend (see harp/vision/camera.BACKEND_CHOICES);
+# `usb_webcam` is HARP-side sugar for "webcam, but the OTHER device index" —
+# harp.vision.camera only knows about `webcam` + a device, it has no notion of
+# "laptop" vs. "USB".
+CAMERA_SOURCE_CHOICES = ("auto", "realsense", "webcam", "usb_webcam")
+
+
+@dataclass
+class CameraSourceState:
+    """Live-selectable camera source, mirroring VoiceTuning's shape: seeded
+    from CameraSettings at startup, mutated by the dashboard's camera dropdown
+    at runtime via `select`. `select` only records which source is selected
+    and maps it to a (backend, device) pair for Camera.request_switch to
+    actually apply — it does not touch the camera itself, keeping this class
+    testable without real hardware."""
+
+    source: str = "auto"
+    webcam_index: int = 0
+    usb_webcam_index: int = 1
+
+    def snapshot(self) -> dict:
+        return {"source": self.source}
+
+    def select(self, source: str) -> tuple[str, int]:
+        """Validate + record `source`; return the (backend, device) target for
+        Camera.request_switch. Raises ValueError on an unrecognized source."""
+        if source not in CAMERA_SOURCE_CHOICES:
+            raise ValueError(f"camera source must be one of {CAMERA_SOURCE_CHOICES}")
+        self.source = source
+        if source == "usb_webcam":
+            return "webcam", self.usb_webcam_index
+        if source == "webcam":
+            return "webcam", self.webcam_index
+        if source == "realsense":
+            return "realsense", self.webcam_index
+        return "auto", self.webcam_index
 
 
 def _clamp(value: float, low: float, high: float) -> float:

@@ -16,18 +16,23 @@ Responsibilities
 
 WAKE POLICY LIVES HERE. The detectors only report facts (present / identified /
 gesture / button); the decision to actually spend money on a session is the
-orchestrator's alone: it honors WakeRequested only while STANDBY. It imports
-nothing from the subsystems — only core.bus, core.events, core.state, and the
-voice layer it drives.
+orchestrator's alone: it honors WakeRequested only while STANDBY, and — when
+app.py injects a `wake_allowed` predicate — only for reasons that pass it
+(exclusive push-to-talk passes `reason == "button"`, so nothing but the button
+opens a session; a vetoed wake is logged and dropped). It imports nothing from
+the subsystems — only core.bus, core.events, core.state, and the voice layer
+it drives.
 
 Current status: the state machine, wake/end flow, error handling with backoff,
 heartbeat, the voice session, AND status narration are real. `_open_session`
 runs the injected VoiceBridge (harp/voice/bridge.py) as a task, `_close_session`
 cancels it. An injected StatusVoice (orchestrator/status_voice.py) speaks canned
 lines at boot / standby / error / shutdown, and an injected connectivity probe
-lets boot announce "connection established" vs "no internet". Both the bridge
-and the status voice are optional — constructed without them (tests, partial
-wiring) the orchestrator drives state and events exactly as before, silently.
+lets boot announce "connection established" vs "no internet". WHICH line plays
+at which moment is decided by the rule book (orchestrator/status_rules.py) —
+edit the what-to-say policy there, not here. Both the bridge and the status
+voice are optional — constructed without them (tests, partial wiring) the
+orchestrator drives state and events exactly as before, silently.
 """
 
 from __future__ import annotations
@@ -51,18 +56,20 @@ from ..core.events import (
 )
 from ..core.state import AppState, can_transition
 from .retry import backoff_seconds, should_give_up
+from .status_rules import line_for
 
 logger = logging.getLogger(__name__)
 
 
 def _error_line(where: str) -> str:
-    """Map an ErrorRaised.where to the closest canned status clip."""
+    """Map an ErrorRaised.where to the closest error MOMENT in the status rule
+    book (status_rules.py — which decides the actual clip)."""
     w = where.lower()
     if "mic" in w or "audio" in w:
-        return "mic_problem"
+        return "error.mic"
     if "voice" in w or "session" in w or "provider" in w or "network" in w:
-        return "connection_lost"
-    return "error_recoverable"
+        return "error.connection"
+    return "error.generic"
 
 
 class Orchestrator:
@@ -75,6 +82,7 @@ class Orchestrator:
         voice_bridge=None,
         status_voice=None,
         connectivity_check=None,
+        wake_allowed=None,
     ) -> None:
         self._bus = bus
         self._provider = provider_name
@@ -97,6 +105,10 @@ class Orchestrator:
         # which every existing bus-driven test relies on.
         self._status = status_voice
         self._connectivity_check = connectivity_check
+        # Wake policy filter: None honors every WakeRequested while STANDBY;
+        # otherwise a predicate on the wake reason — e.g. exclusive push-to-
+        # talk injects (reason == "button") so ONLY the button opens sessions.
+        self._wake_allowed = wake_allowed
 
     @property
     def state(self) -> AppState:
@@ -114,15 +126,19 @@ class Orchestrator:
                 if isinstance(ev, ShutdownRequested):
                     await self._shutdown(ev.reason or "shutdown requested")
                 elif isinstance(ev, WakeRequested):
-                    if self._state is AppState.STANDBY:
-                        await self._open_session(ev.reason, ev.context)
-                    else:
+                    if self._state is not AppState.STANDBY:
                         logger.debug(
                             "ignoring wake (%s) while %s", ev.reason, self._state.value
                         )
+                    elif self._wake_allowed is not None and not self._wake_allowed(
+                        ev.reason
+                    ):
+                        logger.info("wake (%s) vetoed by wake policy", ev.reason)
+                    else:
+                        await self._open_session(ev.reason, ev.context)
                 elif isinstance(ev, EndOfInteractionDetected):
                     if self._state is AppState.ACTIVE:
-                        await self._close_session(ev.reason)
+                        await self._close_session(ev.reason, cause=ev.cause)
                 elif isinstance(ev, ErrorRaised):
                     await self._handle_error(ev)
                 if self._state is AppState.STOPPING:
@@ -149,17 +165,17 @@ class Orchestrator:
         was injected) report whether we can reach the internet, so a failure to
         dial the cloud is spoken up front rather than only surfacing on the first
         wake. The probe is best-effort — it never blocks reaching STANDBY."""
-        await self._say("starting_up")
+        await self._say("boot")
         if self._connectivity_check is not None:
             reachable = await self._check_connectivity()
-            await self._say("connection_established" if reachable else "no_internet")
+            await self._say("boot.online" if reachable else "boot.offline")
         await self._to(AppState.STANDBY, "boot complete")
 
     async def _shutdown(self, reason: str) -> None:
         """Close any open session gracefully, then head to STOPPING."""
         if self._state is AppState.ACTIVE:
             await self._close_session(f"shutting down: {reason}", narrate=False)
-        await self._say("shutting_down")
+        await self._say("shutdown")
         await self._to(AppState.STOPPING, reason)
 
     # --- session lifecycle ------------------------------------------------------
@@ -176,16 +192,18 @@ class Orchestrator:
             self._session_task = asyncio.create_task(self._run_session(context))
         await self._bus.publish(InteractionStarted(reason=reason, context=context))
 
-    async def _close_session(self, reason: str, narrate: bool = True) -> None:
+    async def _close_session(self, reason: str, cause: str = "", narrate: bool = True) -> None:
         """ACTIVE → STANDBY: tear the session down; publish InteractionEnded so
-        the memory summarizer can run. `narrate` plays the "going on standby"
-        cue on a normal end; the error/shutdown paths pass narrate=False because
-        they speak their own line (an error notice / a goodbye) instead."""
+        the memory summarizer can run. `narrate` plays the end cue on a normal
+        close — WHICH cue depends on `cause` (walked_off / silence / agent /
+        provider, from EndOfInteractionDetected) via the status rule book. The
+        error/shutdown paths pass narrate=False because they speak their own
+        line (an error notice / a goodbye) instead."""
         await self._stop_session_task()
         await self._to(AppState.STANDBY, reason)
         await self._bus.publish(InteractionEnded(reason=reason))
         if narrate:
-            await self._say("going_standby")
+            await self._say(f"session_end.{cause}" if cause else "session_end")
 
     async def _run_session(self, context: str) -> None:
         """Body of the session task. It never mutates orchestrator state
@@ -205,7 +223,9 @@ class Orchestrator:
             # off ACTIVE, treat it as the interaction ending.
             if self._state is AppState.ACTIVE:
                 await self._bus.publish(
-                    EndOfInteractionDetected(reason="voice session ended")
+                    EndOfInteractionDetected(
+                        reason="voice session ended", cause="provider"
+                    )
                 )
 
     async def _stop_session_task(self) -> None:
@@ -218,15 +238,21 @@ class Orchestrator:
 
     # --- status narration -------------------------------------------------------
 
-    async def _say(self, line_id: str) -> None:
-        """Play a canned status line if a StatusVoice was injected. Fully
-        guarded: narration is best-effort and must never break the supervisor."""
+    async def _say(self, moment: str) -> None:
+        """Narrate one life-cycle MOMENT ("boot", "session_end.silence", ...).
+        Which clip that means — or whether it stays silent — is the rule book's
+        call (status_rules.py), so what HARP says is edited there, never here.
+        Fully guarded: narration is best-effort and must never break the
+        supervisor."""
         if self._status is None:
+            return
+        line_id = line_for(moment)
+        if line_id is None:  # the rule book keeps this moment silent
             return
         try:
             await self._status.play(line_id)
         except Exception:
-            logger.exception("status narration failed for %s", line_id)
+            logger.exception("status narration failed for %s", moment)
 
     async def _check_connectivity(self) -> bool:
         """Run the injected (blocking) connectivity probe off-thread; any failure
@@ -245,12 +271,12 @@ class Orchestrator:
         if self._state is AppState.ACTIVE:
             await self._close_session(f"error in {ev.where}", narrate=False)
         if ev.fatal:
-            await self._say("error_fatal")
+            await self._say("error.fatal")
             await self._to(AppState.STOPPING, ev.message)
             return
         await self._to(AppState.ERROR, ev.message)
-        # Say the problem out loud (status_voice), per PLAN.md: pick the closest
-        # canned line for where it failed (mic / network / generic).
+        # Say the problem out loud: the closest error moment for where it
+        # failed (mic / network / generic); the rule book picks the clip.
         await self._say(_error_line(ev.where))
         self._error_count += 1
         now = time.monotonic()

@@ -1,0 +1,9 @@
+title: HARP Documentation
+description: How the HARP voice-assistant robot codebase is structured and how every part works
+theme: jekyll-theme-cayman
+markdown: kramdown
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: true

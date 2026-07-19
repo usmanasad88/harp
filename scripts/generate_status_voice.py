@@ -6,9 +6,13 @@ offline TTS engine, plus a manifest.json that maps stable line ids to files.
 `status_voice.play()` reads the manifest at runtime; this script runs ONCE
 (or whenever the phrase set changes) and its output is committed to the repo.
 
-Kokoro lives in a separate venv, so run with THAT interpreter, not harp's:
+Kokoro lives in a separate venv (torch would bloat harp's), so run with THAT
+interpreter, not harp's. Create it once at the repo root, then generate:
 
-    /home/mani/Repos/Latex/.venv-tts/bin/python scripts/generate_status_voice.py
+    uv venv .venv-tts --python 3.12
+    uv pip install --python .venv-tts kokoro soundfile
+    .venv-tts\Scripts\python scripts/generate_status_voice.py   (Windows)
+    .venv-tts/bin/python scripts/generate_status_voice.py       (Linux/macOS)
 
 Output:
     assets/status_voice/en/<line_id>.wav   (24 kHz mono 16-bit PCM)
@@ -51,6 +55,17 @@ LINES: dict[str, str] = {
     "error_recoverable": "I ran into a problem. Give me a moment.",
     "error_fatal": "I couldn't recover from an error, and I have to shut down.",
     "mic_problem": "I'm having trouble with my microphone.",
+    # Played intermittently while idle in push-to-talk mode (interaction/
+    # idle_prompt.py), so passers-by know how to start a conversation.
+    "hold_green_button": "Please hold the green button to talk to me.",
+    # Follow mode (harp/motion/follow): the start refusal (no enrolled face in
+    # frame), the start warning, and the end-of-follow announcement.
+    "follow_no_person": "No known person detected in frame.",
+    "follow_started": (
+        "I'm now following you. Please ensure a safe distance from other "
+        "people or obstacles."
+    ),
+    "follow_stopped": "Follow mode stopped.",
     "going_standby": "Going on standby.",
     "session_ended": "Goodbye.",
     "shutting_down": "Shutting down. Goodbye.",

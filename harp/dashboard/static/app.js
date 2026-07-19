@@ -74,10 +74,12 @@ function setConnected(connected) {
     : "disconnected — retrying…";
   if (!connected) {
     // Mute state came from this connection — a stale label on reconnect
-    // would be a guess, not a fact.
+    // would be a guess, not a fact. Same for the patrol state.
     micMuted = null;
+    moveActive = null;
   }
   updateMuteButton();
+  updateMoveButton();
 }
 
 // --- dispatch -----------------------------------------------------------
@@ -109,8 +111,14 @@ function handleMessage(msg) {
       micMuted = msg.fields.muted;
       updateMuteButton();
       break;
+    case "MoveAroundChanged":
+      renderMoveAround(msg.fields);
+      break;
     case "VoiceTuningChanged":
       renderVoiceTuning(msg.fields);
+      break;
+    case "CameraSourceChanged":
+      renderCameraSource(msg.fields);
       break;
     case "InteractionStarted":
       addDivider(`interaction started (${msg.fields.reason})`);
@@ -174,6 +182,43 @@ function updateMuteButton() {
 muteBtn.addEventListener("click", () => {
   if (micMuted === null || !ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "SetMicMuted", muted: !micMuted }));
+});
+
+// --- move around (base patrol) button ------------------------------------
+// Confirmation-based like the mute button: clicking sends {type:
+// "SetMoveAround", active}; the label only flips when the motion controller's
+// MoveAroundChanged comes back — which it also publishes when the agent's
+// move_around tool starts a patrol or the bounded lap finishes on its own, so
+// the button tracks ALL starts/stops, not just its own. Hidden until the
+// first MoveAroundChanged arrives (app.py only wires this when harp.yaml
+// motion.enabled — no motors, no button).
+
+const moveBtn = document.getElementById("move-btn");
+let moveActive = null; // null = not known yet (no MoveAroundChanged seen)
+
+function renderMoveAround(fields) {
+  moveActive = fields.active;
+  moveBtn.hidden = false;
+  updateMoveButton();
+}
+
+function updateMoveButton() {
+  if (moveActive === null || !ws || ws.readyState !== WebSocket.OPEN) {
+    moveBtn.disabled = true;
+    moveBtn.textContent = "move around";
+    moveBtn.className = "mute-btn";
+    return;
+  }
+  moveBtn.disabled = false;
+  moveBtn.textContent = moveActive
+    ? "MOVING — tap to stop"
+    : "move around — tap to start patrol";
+  moveBtn.className = "mute-btn " + (moveActive ? "moving" : "live");
+}
+
+moveBtn.addEventListener("click", () => {
+  if (moveActive === null || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "SetMoveAround", active: !moveActive }));
 });
 
 // --- voice tuning (noise/VAD, whichever agent owns the mic) --------------
@@ -380,6 +425,30 @@ function renderToolCompleted(fields) {
   capRows(container, MAX_TOOL_ROWS);
 }
 
+// --- camera source (dashboard dropdown) -----------------------------------
+// Confirmation-based like the mute button and voice tuning: picking an option
+// sends {type:"SetCameraSource", source}; the server validates and echoes
+// CameraSourceChanged, which is what actually moves the dropdown — so every
+// open tab stays in sync. Hidden until the first CameraSourceChanged arrives
+// (app.py only wires this when a camera actually started this run).
+
+function renderCameraSource(fields) {
+  const row = document.getElementById("camera-source-row");
+  row.hidden = false;
+  const select = document.getElementById("camera-source-select");
+  // Don't yank a selection the user is actively making out from under them.
+  if (document.activeElement !== select) select.value = fields.source;
+  const badge = document.getElementById("camera-source-badge");
+  badge.textContent = fields.backend ? `· active: ${fields.backend}` : "";
+}
+
+function wireCameraSourceControl() {
+  document.getElementById("camera-source-select").addEventListener("change", (e) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "SetCameraSource", source: e.target.value }));
+  });
+}
+
 // --- camera feed ---------------------------------------------------------
 // Frames are NOT bus events (too big); the server exposes the shared camera's
 // latest frame read-only at /camera.jpg. Poll it, keeping the last good image
@@ -423,5 +492,6 @@ function logRaw(msg) {
 }
 
 wireTuningControls();
+wireCameraSourceControl();
 connect();
 pollCamera();

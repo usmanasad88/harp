@@ -366,10 +366,59 @@ def start_with_status(
     return orch, asyncio.create_task(orch.run())
 
 
-def test_error_line_maps_where_to_clip():
-    assert _error_line("voice.session") == "connection_lost"
-    assert _error_line("dashboard.mic_mute") == "mic_problem"
-    assert _error_line("something else") == "error_recoverable"
+def test_error_line_maps_where_to_moment():
+    # Moments, not clip ids — the rule book (status_rules.py) picks the clip.
+    assert _error_line("voice.session") == "error.connection"
+    assert _error_line("dashboard.mic_mute") == "error.mic"
+    assert _error_line("something else") == "error.generic"
+
+
+async def test_end_cause_picks_the_narration_line(bus):
+    """The cause on EndOfInteractionDetected must reach the rule book: a
+    silence-caused end plays the goodbye clip, not the generic standby cue —
+    losing the cause en route would silently degrade every close to the
+    fallback line."""
+    status = FakeStatusVoice()
+    states = bus.subscribe(StateChanged)
+    _, task = start_with_status(bus, status)
+    try:
+        await next_event(states)  # → standby
+        await bus.publish(WakeRequested(reason="button"))
+        await next_event(states)  # → active
+        await bus.publish(
+            EndOfInteractionDetected(reason="no conversation for 15s", cause="silence")
+        )
+        await next_event(states)  # → standby
+        await asyncio.sleep(0.05)  # let the post-transition narration run
+        assert "session_ended" in status.played  # rule book: session_end.silence
+        assert "going_standby" not in status.played
+    finally:
+        await cancel(task)
+
+
+async def test_wake_policy_vetoes_every_non_button_wake(bus):
+    """Exclusive push-to-talk injects wake_allowed=(reason == "button"). A
+    vetoed wake must leave STANDBY untouched — no session, no state change,
+    no money spent — while the button still opens one: a policy that silently
+    dropped ALL wakes would brick the robot."""
+    orch = Orchestrator(bus, "gemini", wake_allowed=lambda r: r == "button")
+    states = bus.subscribe(StateChanged)
+    started = bus.subscribe(InteractionStarted)
+    task = asyncio.create_task(orch.run())
+    try:
+        await next_event(states)  # → standby
+        await bus.publish(WakeRequested(reason="wake word (hello)"))
+        await bus.publish(WakeRequested(reason="wave"))
+        await bus.publish(WakeRequested(reason="loud sound (0.42)"))
+        await asyncio.sleep(0.05)  # give a buggy open time to happen
+        assert orch.state is AppState.STANDBY  # all three vetoed
+
+        await bus.publish(WakeRequested(reason="button"))
+        ev = await next_event(states)  # → active: the button still works
+        assert ev.new == "active"
+        assert (await next_event(started)).reason == "button"
+    finally:
+        await cancel(task)
 
 
 async def test_boot_narrates_starting_then_connection_established(bus):
