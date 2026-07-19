@@ -1,9 +1,9 @@
 'use strict';
 
-/* Laila Realtime — browser client.
+/* HARP Realtime — browser client.
  *
  * Browser responsibilities (everything in this file):
- *   - capture the mic, play Laila's audio,
+ *   - capture the mic, play HARP's audio,
  *   - fetch a short-lived ephemeral key from our /session endpoint,
  *   - open the WebRTC peer connection directly to OpenAI,
  *   - render transcript + state, and recover from drops.
@@ -22,7 +22,7 @@ const turnLabel = document.getElementById('turnLabel');
 const hint = document.getElementById('hint');
 const transcriptEl = document.getElementById('transcript');
 const clearBtn = document.getElementById('clearBtn');
-const lailaAudio = document.getElementById('lailaAudio');
+const harpAudio = document.getElementById('harpAudio');
 const modelTag = document.getElementById('modelTag');
 const voiceTag = document.getElementById('voiceTag');
 const latencyEl = document.getElementById('latency');
@@ -44,7 +44,7 @@ let sessionStart = 0;
 let sessionTick = null;
 let speechStoppedAt = 0;
 let userLine = null;
-let lailaLine = null;
+let harpLine = null;
 
 const TURN_LABELS = {
   idle: 'tap to begin',
@@ -52,7 +52,7 @@ const TURN_LABELS = {
   reconnecting: 'reconnecting…',
   listening: 'listening…',
   user_speaking: 'go on…',
-  laila_speaking: 'Laila speaking',
+  harp_speaking: 'HARP speaking',
   error: 'tap to retry',
 };
 
@@ -85,7 +85,7 @@ function setTurn(turn) {
   body.dataset.turn = turn;
   turnLabel.textContent = TURN_LABELS[turn] || turn;
   if (turn === 'user_speaking') vadTag.textContent = 'you';
-  else if (turn === 'laila_speaking') vadTag.textContent = 'laila';
+  else if (turn === 'harp_speaking') vadTag.textContent = 'harp';
   else if (turn === 'listening') vadTag.textContent = 'open';
   else vadTag.textContent = 'idle';
 }
@@ -116,9 +116,9 @@ function setHint(text, isError) {
 async function startSession() {
   intentionalEnd = false;
   setState('connecting');
-  setHint('Allow microphone access to talk with Laila.');
+  setHint('Allow microphone access to talk with HARP.');
 
-  // 1. Microphone (browser responsibility). Echo cancellation keeps Laila's
+  // 1. Microphone (browser responsibility). Echo cancellation keeps HARP's
   //    voice from looping back into the mic.
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
@@ -165,9 +165,9 @@ async function openPeerConnection(token) {
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
   });
 
-  // Laila's audio arrives on a remote track -> play it and analyse it.
+  // HARP's audio arrives on a remote track -> play it and analyse it.
   pc.ontrack = (e) => {
-    lailaAudio.srcObject = e.streams[0];
+    harpAudio.srcObject = e.streams[0];
     attachOutputAnalyser(e.streams[0]);
   };
 
@@ -249,7 +249,7 @@ function endSession() {
   addLine('', 'Session ended.', 'system');
   teardown(true);
   setState('idle');
-  setHint('Speak in English or Urdu — Laila listens and replies out loud.');
+  setHint('Speak in English or Urdu — HARP listens and replies out loud.');
 }
 
 // ---- Server events --------------------------------------------------------
@@ -278,24 +278,24 @@ function handleServerEvent(evt) {
       userLine = null;
       break;
 
-    // Laila's spoken reply, transcribed as it streams.
+    // HARP's spoken reply, transcribed as it streams.
     case 'response.output_audio_transcript.delta':
     case 'response.audio_transcript.delta':
       if (speechStoppedAt) {
         latencyEl.textContent = Math.round(performance.now() - speechStoppedAt) + ' ms';
         speechStoppedAt = 0;
       }
-      setTurn('laila_speaking');
-      if (!lailaLine) lailaLine = addLine('laila', '', 'laila pending');
-      appendText(lailaLine, evt.delta || '');
+      setTurn('harp_speaking');
+      if (!harpLine) harpLine = addLine('harp', '', 'harp pending');
+      appendText(harpLine, evt.delta || '');
       break;
 
     case 'response.output_audio_transcript.done':
     case 'response.audio_transcript.done':
-      if (lailaLine) {
-        if (evt.transcript) setText(lailaLine, evt.transcript.trim());
-        lailaLine.classList.remove('pending');
-        lailaLine = null;
+      if (harpLine) {
+        if (evt.transcript) setText(harpLine, evt.transcript.trim());
+        harpLine.classList.remove('pending');
+        harpLine = null;
       }
       break;
 
@@ -317,7 +317,7 @@ function handleServerEvent(evt) {
   }
 }
 
-// Relay a model function call to our server, then hand the result back so Laila
+// Relay a model function call to our server, then hand the result back so HARP
 // can speak an answer grounded in data/.
 async function sendEvent(obj) {
   if (dc && dc.readyState === 'open') dc.send(JSON.stringify(obj));
@@ -396,9 +396,9 @@ function teardown(full) {
   }
   closePeer();
   cleanupMedia();
-  lailaAudio.srcObject = null;
+  harpAudio.srcObject = null;
   userLine = null;
-  lailaLine = null;
+  harpLine = null;
   setTurn('idle');
   if (full) {
     stopSessionTimer();
@@ -473,7 +473,7 @@ function renderOrb() {
   const speaking = outLvl > inLvl;
   const energy = Math.max(inLvl, outLvl);
 
-  // Aqua when Laila speaks, coral when you speak, dim aqua at rest.
+  // Aqua when HARP speaks, coral when you speak, dim aqua at rest.
   const hue = speaking ? '70, 232, 210' : energy > 0.04 ? '255, 122, 107' : '70, 232, 210';
   const baseR = W * 0.16;
   const r = baseR * (1 + energy * 0.9);
@@ -536,7 +536,7 @@ callBtn.addEventListener('click', () => {
 clearBtn.addEventListener('click', () => {
   transcriptEl.innerHTML = '';
   userLine = null;
-  lailaLine = null;
+  harpLine = null;
 });
 
 setState('idle');

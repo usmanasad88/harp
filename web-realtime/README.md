@@ -1,9 +1,9 @@
-# Laila Realtime
+# HARP Realtime
 
 A small, polished **real-time voice console** built on the **OpenAI Realtime API**
 over **WebRTC** — low-latency speech in, speech out, with a live transcript and a
 sonar-orb that reacts to who's talking. It's the browser-side spike for HARP's
-OpenAI Realtime provider, themed around **Laila**, the robot-dolphin receptionist.
+OpenAI Realtime provider, themed around **HARP**, the robot receptionist.
 
 This is *speech-to-speech over a persistent media connection*, not a
 record → upload → transcribe → reply text loop. Audio streams continuously in
@@ -20,7 +20,7 @@ browser**.
 | Server (`server.js`, Node, no deps)                | Browser (`public/`, vanilla JS)                       |
 | -------------------------------------------------- | ----------------------------------------------------- |
 | Holds `OPENAI_API_KEY`.                            | Never sees the real key.                              |
-| Builds the session config (model, voice, persona). | Captures mic, plays Laila's audio.                    |
+| Builds the session config (model, voice, persona). | Captures mic, plays HARP's audio.                    |
 | `POST /v1/realtime/client_secrets` → ephemeral key.| `POST /session` to get that short-lived `ek_…` key.   |
 | Returns only `{ value, expires_at, model, voice }`.| Opens the WebRTC peer connection straight to OpenAI.  |
 | Serves the static front-end.                       | Renders transcript, state, telemetry, recovery.       |
@@ -76,14 +76,14 @@ Set these in `harp/.env` (or the shell) to override the defaults:
 | `PORT`           | `3000`             | Local dev port.                                              |
 
 The spoken persona is loaded from `../prompts/system_instructions.md` (the HARP
-prompt). Edit that file to change how Laila behaves — it's the single source of
+prompt). Edit that file to change how HARP behaves — it's the single source of
 truth, applied server-side so the browser can't tamper with it.
 
 ---
 
 ## Knowledge (RAG)
 
-Laila can look things up in `harp/data/*.md` before answering, via a
+HARP can look things up in `harp/data/*.md` before answering, via a
 `search_knowledge` **function tool**. Nothing is hardcoded to a specific corpus —
 drop your own markdown into `data/` and restart.
 
@@ -94,7 +94,7 @@ model decides to look something up
    └─ emits  response.function_call_arguments.done  { name, call_id, arguments }
 browser relays the query ─► POST /search ─► server BM25 search over data/*.md
 browser returns result  ─► conversation.item.create { function_call_output } ─► response.create
-   └─ Laila speaks an answer grounded in the top passages
+   └─ HARP speaks an answer grounded in the top passages
 ```
 
 - **Backend:** `knowledge.js` — dependency-free **keyword (BM25)** search over
@@ -117,12 +117,12 @@ browser returns result  ─► conversation.item.create { function_call_output }
 - **WebRTC, not WebSockets**, is the recommended browser transport: audio rides
   the same low-jitter path as a video call, and turn-taking feels conversational.
 - Keep `getUserMedia` constraints with `echoCancellation: true` — without it,
-  Laila hears herself through your speakers and talks over her own tail.
+  HARP hears herself through your speakers and talks over her own tail.
 - The **reply** figure in the footer measures wall-clock from *you stop speaking*
-  (`input_audio_buffer.speech_stopped`) to *Laila's first transcript token*. Treat
+  (`input_audio_buffer.speech_stopped`) to *HARP's first transcript token*. Treat
   it as a felt-latency gauge, not a benchmark; it includes server VAD end-pointing.
 - Server-side VAD (`silence_duration_ms: 500`) trades responsiveness against
-  cutting you off. Lower it for snappier turns, raise it if Laila interrupts.
+  cutting you off. Lower it for snappier turns, raise it if HARP interrupts.
 
 ### Session lifecycle
 - The **ephemeral key expires in ~10 min** (`expires_after.seconds: 600`) and is
@@ -170,16 +170,16 @@ Run through this to confirm a build is healthy.
 - [ ] Empty/invalid `OPENAI_API_KEY` → server console shows `Key: MISSING`; `/session` returns a readable error in the UI.
 
 **Basic conversation quality**
-- [ ] Say "Hello" → Laila replies out loud within a second or two; **reply** latency populates.
-- [ ] Your words appear under **you**; Laila's reply streams under **laila** as she speaks.
-- [ ] **Interrupt** Laila mid-sentence by talking → she yields (barge-in works).
-- [ ] Speak Urdu → Laila replies in Urdu (the HARP language test); try a natural Urdu/English mix.
+- [ ] Say "Hello" → HARP replies out loud within a second or two; **reply** latency populates.
+- [ ] Your words appear under **you**; HARP's reply streams under **harp** as she speaks.
+- [ ] **Interrupt** HARP mid-sentence by talking → she yields (barge-in works).
+- [ ] Speak Urdu → HARP replies in Urdu (the HARP language test); try a natural Urdu/English mix.
 - [ ] No echo/feedback loop (confirms echo cancellation is on).
 - [ ] **End session** stops the mic (OS mic indicator turns off) and resets state to `offline`.
 - [ ] Session timer counts up while live and resets on end.
 
 **Knowledge / retrieval**
-- [ ] Ask something answerable from `data/` (e.g. "what is this expo about?") → a `🔎 searched:` line appears and Laila answers from the docs.
+- [ ] Ask something answerable from `data/` (e.g. "what is this expo about?") → a `🔎 searched:` line appears and HARP answers from the docs.
 - [ ] Ask in Urdu about the expo → she still searches with English keywords and answers in Urdu.
 - [ ] Ask something not in the docs → she says she's not sure rather than inventing an answer.
 - [ ] Drop a new `.md` into `harp/data/`, restart, and confirm the startup log's chunk count rises and the new content is findable.

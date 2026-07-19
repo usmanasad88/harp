@@ -89,7 +89,7 @@ This is the central flow of the whole system, end to end.
   captured as a phrase, transcribed locally with faster-whisper, and matched against the
   configured wake words. Either path publishes `WakeRequested(reason, context)` — where `context`
   is a *model-facing* sentence like *"You just woke from standby because someone said 'hello
-  laila'..."*, loaded from a template in `prompts/`.
+  harp'..."*, loaded from a template in `prompts/`.
 - The **camera stack** keeps watching: the gesture recognizer publishes `GestureDetected("wave")`
   for a held-up open palm, which the trigger engine (`harp/triggers/`) converts into a
   `WakeRequested(reason="wave")`. Face-ID publishes `PersonIdentified` and `PresenceChanged`.

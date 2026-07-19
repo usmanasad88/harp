@@ -90,7 +90,7 @@ class ListenerSettings:
     transcribe_level: float = 0.04  # this loud starts the wake-word transcriber
     wake_words: list[str] = field(
         default_factory=lambda: [
-            "hey", "hi", "hello", "laila", "harp", "salam", "salaam", "assalam",
+            "hey", "hi", "hello", "harp", "salam", "salaam", "assalam",
         ]
     )
     max_phrase_seconds: float = 5.0
@@ -396,7 +396,7 @@ def load_prompt(path: Path, fallback: str) -> str:
 
 
 FALLBACK_PERSONA = (
-    "You are Laila, a friendly robot dolphin at the reception of a robotics expo. "
+    "You are HARP, a friendly robot assistant at the reception of a robotics expo. "
     "Speak out loud in short, warm, spoken sentences (no markdown). Mirror the "
     "user's language: reply in English to English, Urdu to Urdu, and match a "
     "natural Urdu/English mix. Do not speak other languages. Be honest when you "
@@ -633,14 +633,14 @@ def load_wake_context_wake_word(path: Path = WAKE_CONTEXT_WAKE_WORD_FILE) -> str
 # camera scene mid-session. See prompts/README.md.
 
 FALLBACK_MEMORY_SUMMARIZER_PROMPT = (
-    "You are the memory-keeper for Laila, a robot receptionist. A conversation "
-    "just ended; turn it into a memory Laila can use the next time she meets "
+    "You are the memory-keeper for HARP, a robot receptionist. A conversation "
+    "just ended; turn it into a memory HARP can use the next time it meets "
     "these visitors.\n\nFacts extracted from the interaction:\n{facts}\n\n"
     "Transcript:\n{transcript}\n\n"
     'Reply with ONLY a JSON object with these keys: "summary" (2-4 plain '
     "sentences: who the visitors were, what they asked or talked about, and how "
     'it was resolved), "follow_up" (one sentence describing anything left open '
-    "that Laila should follow up on if she sees them again — e.g. they were "
+    "that HARP should follow up on if it sees them again — e.g. they were "
     'looking for something — or "" if nothing is open), and "person_facts" '
     "(things the visitors said about themselves worth remembering — name, role, "
     'affiliation, interests — or "" if none). Write in English regardless of '
@@ -656,15 +656,15 @@ def load_memory_summarizer_prompt(path: Path = MEMORY_SUMMARIZER_PROMPT_FILE) ->
 
 
 FALLBACK_CONTEXT_WRITER_PROMPT = (
-    "You brief Laila, a robot receptionist, just before she starts a "
-    "conversation. The attached photo is what her camera sees right now. Below "
-    "is what her long-term memory holds about the people her face recognition "
+    "You brief HARP, a robot receptionist, just before it starts a "
+    "conversation. The attached photo is what its camera sees right now. Below "
+    "is what its long-term memory holds about the people its face recognition "
     "identified in frame:\n\n{people}\n\n"
-    "Write the briefing Laila will read as the conversation opens: 2-4 short "
+    "Write the briefing HARP will read as the conversation opens: 2-4 short "
     "plain sentences covering who is there (use the photo for how many people "
-    "and anything notable about the scene), what she remembers about them, and "
-    "any open follow-up she should raise. If nobody is recognized, describe "
-    "what the photo shows so she can greet them naturally. Address Laila as "
+    "and anything notable about the scene), what it remembers about them, and "
+    "any open follow-up it should raise. If nobody is recognized, describe "
+    "what the photo shows so it can greet them naturally. Address HARP as "
     '"you". No markdown, no preamble — just the briefing.'
 )
 

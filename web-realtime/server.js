@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Laila Realtime — token + static server.
+ * HARP Realtime — token + static server.
  *
  * Responsibilities (server-only, never the browser):
  *   1. Hold the real OPENAI_API_KEY.
@@ -65,7 +65,7 @@ const PORT = parseInt(process.env.PORT, 10) || 3000;
 // gets the real instructions, not the authoring notes.
 // ---------------------------------------------------------------------------
 const FALLBACK_PERSONA =
-  "You are Laila, a friendly robot dolphin at the reception of a robotics expo. " +
+  "You are HARP, a friendly robot assistant at the reception of a robotics expo. " +
   "Speak out loud in short, warm, spoken sentences (no markdown). Mirror the user's " +
   "language: reply in English to English, Urdu to Urdu, and match a natural Urdu/English " +
   "mix. Do not speak other languages. Be honest when you don't know something. You can " +
@@ -273,7 +273,7 @@ const server = http.createServer(async (req, res) => {
 const chunkCount = knowledge.buildIndex();
 
 server.listen(PORT, () => {
-  console.log('\n  Laila Realtime');
+  console.log('\n  HARP Realtime');
   console.log('  ─────────────────────────────────────────');
   console.log('  Local:  http://localhost:' + PORT);
   console.log('  Model:  ' + MODEL + '   Voice: ' + VOICE);

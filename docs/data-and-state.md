@@ -24,7 +24,7 @@ sees the text.
 
 | File | Drives |
 |---|---|
-| `system_instructions.md` | Laila's persona — the system instruction for every live conversation (both providers) |
+| `system_instructions.md` | HARP's persona — the system instruction for every live conversation (both providers) |
 | `filter_instructions.md` | The two-agent noise filter's persona (relay-only, `[[ignore]]` sentinel) |
 | `search_knowledge_tool.md`, `web_search_tool.md`, `end_session_tool.md`, `move_around_tool.md`, `follow_tool.md`, `describe_scene_tool.md`, `search_memory_tool.md` | The corresponding tool `description` fields |
 | `transcription_openai.md` | The OpenAI input-transcriber steering prompt (romanized Urdu) |

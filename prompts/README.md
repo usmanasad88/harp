@@ -12,7 +12,7 @@ in `harp/config.py`) rather than failing to start.
 
 | File | Used by | What it does |
 |---|---|---|
-| [`system_instructions.md`](system_instructions.md) | the main responder (`harp/voice/bridge.py`, both providers) | **Laila's persona.** Who she is, how she speaks, language mirroring (English/Urdu), honesty/grounding rules, and boundaries. This is the system instruction for every live conversation. |
+| [`system_instructions.md`](system_instructions.md) | the main responder (`harp/voice/bridge.py`, both providers) | **HARP's persona.** Who it is, how it speaks, language mirroring (English/Urdu), honesty/grounding rules, and boundaries. This is the system instruction for every live conversation. |
 | [`filter_instructions.md`](filter_instructions.md) | the optional two-agent noise filter (`harp/voice/filter_agent.py`, off by default — `filter_agent.enabled` in harp.yaml) | The persona for the *first* agent in noisy-room mode: hears the room, decides what (if anything) was said to HARP, and relays just that — never answers or chats. |
 | [`search_knowledge_tool.md`](search_knowledge_tool.md) | the `search_knowledge` tool (`harp/knowledge/tools.py`) | The tool's `description` field — what teaches the model *when* to search `data/` before answering and to admit uncertainty on a miss. |
 | [`web_search_tool.md`](web_search_tool.md) | the `web_search` tool (`harp/knowledge/tools.py`, search in `harp/knowledge/web_search.py`) | The tool's `description` field — what teaches the model to fall back to an internet search (DuckDuckGo, no API key) only when `search_knowledge` came up empty. |

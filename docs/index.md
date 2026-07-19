@@ -3,7 +3,7 @@
 HARP (Humanoid Assistant Robotic Platform) is a bilingual (English/Urdu) **real-time voice
 assistant robot** built for a reception/expo setting. A visitor walks up, wakes it with a wake
 word, a loud sound, a wave, or by holding a talk button, and has a spoken conversation with
-"Laila" — a persona running on a cloud realtime voice model (OpenAI Realtime or Gemini Live).
+HARP — a persona running on a cloud realtime voice model (OpenAI Realtime or Gemini Live).
 Answers are grounded in a local document corpus (`data/`), the robot can see through a camera
 (gestures, face recognition, scene description), remembers the people it has talked to, can
 narrate its own status through pre-recorded clips, and can physically move (patrol its stall or

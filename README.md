@@ -92,7 +92,7 @@ uv run python -m harp.listener   # live level meter + wake-word test
 
 ### Agent prompts
 
-Everything the cloud agents are actually *told* — Laila's persona, the
+Everything the cloud agents are actually *told* — HARP's persona, the
 two-agent filter's persona, every tool description, and the "you just woke up
 because..." / "you're talking to `<name>`" context sent at the start of a
 conversation — lives in [prompts/](prompts/) as plain markdown, not buried in

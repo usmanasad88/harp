@@ -7,7 +7,7 @@ when someone seems to want attention. Two rules (both tuned in harp.yaml):
   - **Loud sound.** Level ≥ `wake_level` wakes HARP immediately.
   - **Wake word.** Level ≥ `transcribe_level` (slightly lower) starts capturing
     a phrase; a local Whisper model transcribes it, and if it contains one of
-    the configured `wake_words` ("hey", "hello", "laila", ...), HARP wakes with
+    the configured `wake_words` ("hey", "hello", "harp", ...), HARP wakes with
     the transcript passed along as model-facing context.
 
 It releases the mic whenever the app leaves STANDBY (the live session needs it)

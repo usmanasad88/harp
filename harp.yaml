@@ -6,7 +6,7 @@
 # <name>" context sent at session open)? That text isn't here — it lives in
 # the prompts/ folder as plain markdown, so it reads and edits like the
 # instructions it is. See prompts/README.md for the full index:
-#   prompts/system_instructions.md          Laila's persona (the main responder)
+#   prompts/system_instructions.md          HARP's persona (the main responder)
 #   prompts/filter_instructions.md          the optional two-agent noise filter's persona
 #   prompts/search_knowledge_tool.md        description of the search_knowledge tool
 #   prompts/end_session_tool.md             description of the end_session tool
@@ -33,7 +33,7 @@ listener:                  # the always-on wake listener (harp/listener)
                            # (set to 1.0 to disable loudness-only wake)
   transcribe_level: 0.04   # sound this loud starts the wake-word transcriber
   # If a transcribed phrase contains one of these words, HARP wakes up.
-  wake_words: [hey, hi, hello, laila, harp, salam, salaam, assalam]
+  wake_words: [hey, hi, hello, harp, salam, salaam, assalam]
   max_phrase_seconds: 5.0  # longest phrase the transcriber will capture
   silence_seconds: 0.8     # this much quiet ends the captured phrase
   # Whisper model used for wake-word transcription: tiny | base | small

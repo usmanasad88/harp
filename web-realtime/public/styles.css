@@ -1,4 +1,4 @@
-/* Laila Realtime — deep-ocean bioluminescent console.
+/* HARP Realtime — deep-ocean bioluminescent console.
    Palette is intentionally not a templated default: teal abyss + aqua glow +
    a reserved warm coral for "you are speaking" and alerts. */
 
@@ -304,7 +304,7 @@ body[data-state="error"] .hint {
 .line.you .who {
   color: var(--coral);
 }
-.line.laila .who {
+.line.harp .who {
   color: var(--aqua);
 }
 .line .text {
