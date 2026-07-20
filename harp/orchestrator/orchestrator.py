@@ -28,6 +28,11 @@ lines at boot / standby / error / shutdown, and an injected connectivity probe
 lets boot announce "connection established" vs "no internet". Both the bridge
 and the status voice are optional — constructed without them (tests, partial
 wiring) the orchestrator drives state and events exactly as before, silently.
+
+An optional patrol_active_check (() -> bool) lets an external autonomous-patrol
+process suppress voice wakes while it owns the wheels — checked on every
+WakeRequested, imports nothing from harp.motion. When it returns True the wake
+is simply ignored, exactly like an "ignoring wake while ACTIVE" no-op.
 """
 
 from __future__ import annotations
@@ -75,6 +80,7 @@ class Orchestrator:
         voice_bridge=None,
         status_voice=None,
         connectivity_check=None,
+        patrol_active_check=None,
     ) -> None:
         self._bus = bus
         self._provider = provider_name
@@ -97,6 +103,10 @@ class Orchestrator:
         # which every existing bus-driven test relies on.
         self._status = status_voice
         self._connectivity_check = connectivity_check
+        # Optional (() -> bool) probe: True while an external autonomous-patrol
+        # process is driving the wheels. Injected by app.py; None keeps the old
+        # behavior (every wake is honored while STANDBY).
+        self._patrol_active_check = patrol_active_check
 
     @property
     def state(self) -> AppState:
@@ -114,7 +124,11 @@ class Orchestrator:
                 if isinstance(ev, ShutdownRequested):
                     await self._shutdown(ev.reason or "shutdown requested")
                 elif isinstance(ev, WakeRequested):
-                    if self._state is AppState.STANDBY:
+                    if self._patrol_active_check is not None and self._patrol_active_check():
+                        logger.debug(
+                            "ignoring wake (%s) — autonomous patrol is active", ev.reason
+                        )
+                    elif self._state is AppState.STANDBY:
                         await self._open_session(ev.reason, ev.context)
                     else:
                         logger.debug(

@@ -31,6 +31,7 @@ from .base_motors import BaseMotors
 from .face_tracker import FaceDetector, open_camera, pick_face
 from .gimbal import Gimbal
 from .teleop_ps5 import PS5Teleop, run_test
+from . import face_server
 
 logger = logging.getLogger("harp.motion")
 
@@ -127,9 +128,12 @@ def main() -> None:
     gimbal = None
     if args.gimbal_port:
         try:
-            gimbal = Gimbal(args.gimbal_port)
+            gimbal = Gimbal(args.gimbal_port, on_face_change=face_server.set_face_present)
         except Exception as exc:
             logger.warning("gimbal disabled: %s", exc)
+
+    if gimbal:
+        face_server.start()
 
     motors = None
     if args.left_port and args.right_port:

@@ -32,6 +32,11 @@ whenever face-ID sees someone while idle, and the live model's search_memory /
 describe_scene tools — all sharing one Gemini Flash Lite helper agent behind
 one rate limiter.
 
+An optional autonomous-patrol check (harp/motion/autonomous_patrol.py +
+harp/motion/patrol_state.py) is wired here too: while patrol drives the wheels
+in a separate process, voice wakes are silently ignored — checked via a tiny
+local HTTP flag, imports nothing from harp.motion.
+
 Not wired yet (joins here as each is built): web-search fallback, watchdog.
 """
 
@@ -41,11 +46,13 @@ import argparse
 import asyncio
 import dataclasses
 import functools
+import json
 import logging
 import os
 import platform
 import socket
 import sys
+import urllib.request
 
 from . import audio_control
 from .config import (
@@ -117,6 +124,21 @@ def _internet_reachable(timeout: float = 3.0) -> bool:
         with socket.create_connection(("8.8.8.8", 53), timeout=timeout):
             return True
     except OSError:
+        return False
+
+
+def _patrol_active(timeout: float = 0.5) -> bool:
+    """True while autonomous_patrol.py (harp/motion) is driving the wheels.
+    Polls the tiny local flag server it starts (harp/motion/patrol_state.py);
+    any failure (not running, unreachable) counts as "not active" so voice
+    behaves normally whenever patrol isn't in the picture."""
+    try:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:8790/patrol", timeout=timeout
+        ) as resp:
+            data = json.loads(resp.read().decode())
+            return bool(data.get("active", False))
+    except Exception:
         return False
 
 
@@ -360,6 +382,7 @@ async def run_app(provider_name: str = "gemini") -> None:
         voice_bridge=voice_bridge,
         status_voice=status_voice,
         connectivity_check=_internet_reachable if status_voice is not None else None,
+        patrol_active_check=_patrol_active,
     )
 
     dashboard_host = dashboard_bind_host(settings.dashboard.bind)
