@@ -21,6 +21,7 @@ import threading
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 
+from . import patrol_state
 from .base_motors import BaseMotors
 from .patrol import PatrolParams, run_patrol
 
@@ -72,6 +73,11 @@ def main():
     try:
         motors = BaseMotors(args.left_port, args.right_port)
         motors.start()
+        # Publish the "patrol owns the wheels" flag over a tiny local HTTP
+        # server so the voice app (separate process) suppresses wakes while
+        # we drive; cleared in the finally below when we stop / E-STOP.
+        patrol_state.start()
+        patrol_state.set_active(True)
     except Exception as e:
         logger.error(f"Failed to open ports: {e}")
         pygame.quit()
@@ -110,6 +116,7 @@ def main():
         stop_event.set()
         patrol_thread.join(timeout=3.0)
         motors.stop()
+        patrol_state.set_active(False)
         pygame.quit()
         logger.info("Robot successfully stopped and powered down.")
 

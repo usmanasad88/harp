@@ -33,6 +33,11 @@ at which moment is decided by the rule book (orchestrator/status_rules.py) —
 edit the what-to-say policy there, not here. Both the bridge and the status
 voice are optional — constructed without them (tests, partial wiring) the
 orchestrator drives state and events exactly as before, silently.
+
+An optional patrol_active_check (() -> bool) lets an external autonomous-patrol
+process suppress voice wakes while it owns the wheels — checked on every
+WakeRequested, imports nothing from harp.motion. When it returns True the wake
+is simply ignored, exactly like an "ignoring wake while ACTIVE" no-op.
 """
 
 from __future__ import annotations
@@ -83,6 +88,7 @@ class Orchestrator:
         status_voice=None,
         connectivity_check=None,
         wake_allowed=None,
+        patrol_active_check=None,
     ) -> None:
         self._bus = bus
         self._provider = provider_name
@@ -109,6 +115,10 @@ class Orchestrator:
         # otherwise a predicate on the wake reason — e.g. exclusive push-to-
         # talk injects (reason == "button") so ONLY the button opens sessions.
         self._wake_allowed = wake_allowed
+        # Optional (() -> bool) probe: True while an external autonomous-patrol
+        # process is driving the wheels. Injected by app.py; None keeps the old
+        # behavior (every wake is honored while STANDBY).
+        self._patrol_active_check = patrol_active_check
 
     @property
     def state(self) -> AppState:
@@ -126,7 +136,11 @@ class Orchestrator:
                 if isinstance(ev, ShutdownRequested):
                     await self._shutdown(ev.reason or "shutdown requested")
                 elif isinstance(ev, WakeRequested):
-                    if self._state is not AppState.STANDBY:
+                    if self._patrol_active_check is not None and self._patrol_active_check():
+                        logger.debug(
+                            "ignoring wake (%s) — autonomous patrol is active", ev.reason
+                        )
+                    elif self._state is not AppState.STANDBY:
                         logger.debug(
                             "ignoring wake (%s) while %s", ev.reason, self._state.value
                         )

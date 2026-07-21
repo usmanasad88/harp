@@ -1,0 +1,12 @@
+@echo off
+cd /d "%~dp0"
+
+REM 1. Start the voice assistant (wake word, Gemini, camera face-ID, dashboard)
+start "HARP Voice" cmd /k uv run python -m harp --provider openai
+
+REM 2. Start motion: gimbal (neck) + wheels + PS4 controller + face server
+start "HARP Motion" cmd /k uv run python -m harp.motion --gimbal-port COM5 --left-port COM4 --right-port COM3
+
+REM 3. Wait a moment for the face server to boot, then open the face fullscreen
+timeout /t 4 /nobreak >nul
+start msedge --kiosk http://127.0.0.1:8788/face.html --edge-kiosk-type=fullscreen
