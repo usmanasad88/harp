@@ -60,11 +60,28 @@ uv run python -m harp --voice-only --provider gemini
 Speak into your mic; it replies through your speakers, grounded in `data/`.
 (`python -m harp.app` still runs the same full agent as the default above.)
 
-### Robot body (standalone, no ROS)
+### Robot body (servo gimbal head + RMD-X8 wheels, no ROS)
 
 The physical robot — the servo gimbal head and the RMD-X8 wheel motors from
-the old `harpcontrol` repo — now runs from this repo as plain Python, no
-ROS 2. Phase 1 is a **separate entry point**, not yet wired into the agent:
+the old `harpcontrol` repo — now runs from this repo as plain Python, no ROS 2.
+
+**Head face tracking runs inside the agent.** `uv run python -m harp` drives
+the gimbal head itself, reading the **same shared camera** as the rest of the
+app (so there's no second RealSense to fight over). Turn it on and point it at
+the ESP32 head in [harp.yaml](harp.yaml):
+
+```yaml
+motion:
+  gimbal_enabled: true
+  gimbal_port: COM5        # uv run python -m harp.motion --list-ports to find it
+  face_kiosk: true         # also pop the fullscreen face page open at boot
+```
+
+Because it shares the app's camera, head tracking uses the **largest** face
+(the shared camera is color-only); the depth-based *nearest*-face pick still
+lives in the standalone runner below.
+
+**Wheels / teleop / depth tracking — the standalone runner:**
 
 ```bash
 uv run python -m harp.motion --list-ports        # find your serial ports first
@@ -78,7 +95,10 @@ down. Add `--preview` for a live detection window, `--test-controller` to
 verify the button mapping. Every piece of hardware is optional — whatever
 isn't plugged in is skipped with a warning and the rest runs. The wheels have
 a mandatory deadman stop: if teleop stops refreshing for 0.25 s (crash, hang,
-controller loop dead), both motors are zeroed.
+controller loop dead), both motors are zeroed. **Note:** a RealSense can only
+be owned by one process — don't run this with `--gimbal-port` (or any camera)
+at the same time as `python -m harp` if the agent is using the RealSense; set
+`camera.backend: webcam` in harp.yaml to hand the RealSense to this runner.
 
 ## Settings
 

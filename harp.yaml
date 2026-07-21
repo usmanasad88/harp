@@ -69,11 +69,13 @@ push_to_talk:              # on-demand hold-to-talk (harp/interaction/push_to_ta
   idle_prompt_seconds: 45
 
 camera:                    # the shared camera (harp/vision/camera)
-  # Feeds gestures, face-ID, presence, and the memory helper's snapshots.
+  # Feeds gestures, face-ID, presence, head tracking, and the memory helper's
+  # snapshots — head tracking (motion.gimbal_* above) reads these same frames,
+  # so it no longer needs its own RealSense.
   # auto      = use the Intel RealSense (color stream) if one is plugged in,
   #             otherwise the webcam. NOTE: only one process can own a
-  #             RealSense — if you run `python -m harp.motion` alongside the
-  #             full agent, set webcam here so motion keeps the RealSense.
+  #             RealSense — if you STILL run `python -m harp.motion` separately
+  #             (e.g. for depth), set webcam here so that process keeps it.
   # realsense = RealSense only (camera subsystems stay off if it's missing)
   # webcam    = plain webcam only
   # This is just the startup default — the dashboard's Camera source dropdown
@@ -98,6 +100,22 @@ motion:                    # the wheeled base's "move around" patrol (harp/motio
   enabled: true
   left_port: COM4
   right_port: COM5
+  # Head gimbal face tracking (harp/motion/head_tracker). The servo head keeps
+  # a detected face centered, reading the SAME shared camera as the rest of the
+  # app — so it runs INSIDE `uv run python -m harp`, no separate process and no
+  # second RealSense to fight over. (This replaces the old standalone
+  # `python -m harp.motion --gimbal-port COM5`.) Independent of `enabled` above:
+  # this gates the HEAD, `enabled` gates the WHEELS. gimbal_port is the ESP32
+  # head's serial port — find it with `uv run python -m harp.motion --list-ports`.
+  gimbal_enabled: true
+  gimbal_port: COM5
+  face_server_port: 8788   # the animated face page: http://127.0.0.1:8788/face.html
+  face_kiosk: true         # pop that face page open fullscreen (Edge kiosk) at
+                           # boot, like start_harp.bat used to do
+  face_kiosk_monitor: 2    # which display it fullscreens on: 1 = primary,
+                           # 2 = the second/extended screen (falls back to the
+                           # primary if there's no second monitor)
+
   base_speed: 350          # forward wheel rpm
   turn_speed: 300          # in-place turn rpm
   side_length: 3.0         # stall boundary side, meters

@@ -299,8 +299,9 @@ when you need the "why" behind a decision.
   port/camera/controller disables that piece with a warning, rest runs. Deps
   added: `pyserial`, `pygame`, `pyrealsense2` (2.58.2 wheels fine on cp312/
   Windows); model at [assets/models/yolov8n-face-lindevs.onnx](assets/models/).
-  NOT on the bus yet — harp.yaml config, voice teleop tools, and dashboard
-  presence are phase 2. Tests: [tests/test_motion.py](tests/test_motion.py) (6 —
+  This is the STANDALONE runner; the in-app wiring followed (move_around +
+  follow tools, and — 2026-07-21 — head tracking on the shared camera, see the
+  Log). Tests: [tests/test_motion.py](tests/test_motion.py) (6 —
   golden RMD frame bytes, deadman timing, hardware-proven teleop signs, ESP32
   wire format). **Partially verified on the real hardware (2026-07-09, via a
   USB hub):** RealSense D435i opened live (USB 2 link — 30 fps profile still
@@ -408,6 +409,18 @@ One line per milestone, newest first. Test counts are the full-suite total at th
 time. For the design rationale, bugs found, and per-chunk notes behind any of
 these, read the matching dated entry in the backup.
 
+- **2026-07-21** — Gimbal head tracking merged INTO `python -m harp` (was a
+  separate `python -m harp.motion --gimbal-port` process that opened its own
+  RealSense and starved the app's shared camera). New `HeadTracker`
+  ([harp/motion/head_tracker.py](harp/motion/head_tracker.py)) reads the SAME
+  shared camera as gestures/face-ID/follow (color-only → largest-face pick, like
+  follow) and drives the ESP32 gimbal + face server on a worker thread, wired as
+  an app runner. COM port + on/off now in `harp.yaml` (`motion.gimbal_enabled` /
+  `gimbal_port` / `face_server_port`). The app also opens the fullscreen face
+  page itself (`motion.face_kiosk`, Edge kiosk with a default-browser fallback),
+  so `start_harp.bat` no longer needs the extra Gimbal process or the msedge
+  line. Suite 268. **Serial/servo path unchanged from phase 1; not re-verified
+  on the physical head.**
 - **2026-07-17** — End-user (kiosk) page at `/user` on the dashboard server:
   full-screen prompt / green "Listening" (talk key held) / thinking dots /
   streamed reply, EN+Urdu. New `TalkKeyChanged` bus event (debounce-bridged,

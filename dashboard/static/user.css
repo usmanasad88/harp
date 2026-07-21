@@ -1,0 +1,109 @@
+/* End-user (kiosk) page. Everything is huge, centered, and driven by ONE
+   body class: mode-idle | mode-listening | mode-thinking | mode-responding |
+   mode-offline. No layout beyond "fill the screen, center the content". */
+
+:root {
+  --bg: #101318;
+  --fg: #f4f6f9;
+  --green: #17a24a;
+  --dim: #8b93a1;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; }
+
+body {
+  font-family: system-ui, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  transition: background-color 0.2s ease;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The whole screen goes green while the talk key is held. */
+body.mode-listening { background: var(--green); }
+
+.screen {
+  display: none;
+  height: 100vh;
+  padding: 5vmin;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4vmin;
+  text-align: center;
+}
+
+body.mode-idle       #screen-idle,
+body.mode-listening  #screen-listening,
+body.mode-thinking   #screen-thinking,
+body.mode-responding #screen-responding,
+body.mode-offline    #screen-offline { display: flex; }
+
+.big {
+  font-size: clamp(2.2rem, 9vmin, 7rem);
+  font-weight: 700;
+  line-height: 1.2;
+  max-width: 90vw;
+}
+
+.dim { color: var(--dim); font-weight: 400; }
+
+/* The Urdu line under each English one. Nastaliq fonts need extra line
+   height; fall back to whatever Arabic-script font the OS has. */
+.urdu {
+  font-family: "Noto Nastaliq Urdu", "Urdu Typesetting", "Jameel Noori Nastaleeq",
+    system-ui, sans-serif;
+  font-weight: 400;
+  font-size: clamp(1.8rem, 7vmin, 5.5rem);
+  line-height: 1.9;
+  color: color-mix(in srgb, currentColor 75%, transparent);
+}
+
+/* Listening: a slow breathing ring so a held button visibly "does something"
+   even before any words happen. */
+.pulse {
+  width: 22vmin;
+  height: 22vmin;
+  border-radius: 50%;
+  border: 1.2vmin solid rgba(255, 255, 255, 0.85);
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.65; }
+  50%      { transform: scale(1.18); opacity: 1; }
+}
+
+/* Thinking: three dots pulsing in sequence (button released, reply coming). */
+.dots span {
+  font-size: clamp(3rem, 12vmin, 9rem);
+  color: var(--dim);
+  animation: blink 1.2s infinite;
+  padding: 0 1.5vmin;
+}
+.dots span:nth-child(2) { animation-delay: 0.2s; }
+.dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes blink {
+  0%, 100% { opacity: 0.2; }
+  40%      { opacity: 1; }
+}
+
+/* The agent's reply. user.js swaps len-s/len-m/len-l as the text streams in
+   so short answers are poster-sized and long ones still fit; past that the
+   text scrolls (auto-pinned to the bottom, where the new words appear). */
+#response {
+  font-weight: 600;
+  line-height: 1.45;
+  max-width: 88vw;
+  max-height: 88vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+#screen-responding.len-s #response { font-size: clamp(2.4rem, 8vmin, 6.5rem); }
+#screen-responding.len-m #response { font-size: clamp(1.8rem, 5.5vmin, 4.5rem); }
+#screen-responding.len-l #response { font-size: clamp(1.3rem, 3.8vmin, 3rem); }

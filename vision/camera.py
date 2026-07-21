@@ -7,12 +7,10 @@ one.
 
 Two backends, chosen at open (harp.yaml `camera.backend`): `auto` (the default)
 uses the Intel RealSense's color stream when one is plugged in, else the plain
-cv2 webcam. Only the color stream is enabled — head tracking now reads these
-same frames (harp/motion/head_tracker, wired into the app), so it needs no
-second RealSense. A RealSense can only be owned by ONE process at a time, so if
-you STILL run the standalone `python -m harp.motion` (e.g. for its depth-based
-nearest-face selection) alongside the full agent, pin this camera to
-`backend: webcam` so that process keeps the RealSense.
+cv2 webcam. Only the color stream is enabled — depth belongs to the standalone
+motion process (harp/motion), and a RealSense can only be owned by ONE process
+at a time: if you run `python -m harp.motion` alongside the full agent, pin
+this camera to `backend: webcam` so motion keeps the RealSense.
 
 pyrealsense2 is imported lazily so webcam mode works even where the RealSense
 SDK is missing or broken.
@@ -140,12 +138,6 @@ class Camera:
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
-        # A source switch requested from another thread (the dashboard's
-        # camera dropdown) — picked up at the top of the next capture
-        # iteration so the device is only ever opened/closed from the thread
-        # that owns it, never touched concurrently from two threads.
-        self._pending_switch: tuple[str, int | str | None] | None = None
-        self._switch_lock = threading.Lock()
 
     async def start(self) -> None:
         """Open the device and begin capturing frames on a background thread."""
@@ -161,30 +153,6 @@ class Camera:
         """Return the most recent frame (or None if none yet). Shared by all."""
         with self._lock:
             return None if self._frame is None else self._frame.copy()
-
-    @property
-    def active_backend(self) -> str | None:
-        """Name of whichever backend is actually driving frames right now
-        ('realsense' | 'webcam'), or None if not opened yet. Informational
-        (e.g. for the dashboard to show what `auto` actually resolved to);
-        safe to read from any thread since it's a single reference read."""
-        backend = self._backend
-        return backend.name if backend is not None else None
-
-    def request_switch(self, backend: str, device: int | str | None = None) -> None:
-        """Ask the capture thread to reopen with a new source — the dashboard
-        camera dropdown, or any other caller. Applied at the top of the next
-        capture iteration, not here, so the device is only ever opened/closed
-        from the thread that already owns it. `device` is ignored by the
-        realsense backend; pass None to keep the current webcam device."""
-        if backend not in BACKEND_CHOICES:
-            logger.warning(
-                "camera: switch requested with backend %r not one of %s; ignoring",
-                backend, BACKEND_CHOICES,
-            )
-            return
-        with self._switch_lock:
-            self._pending_switch = (backend, device)
 
     async def stop(self) -> None:
         """Release the device."""
@@ -215,12 +183,8 @@ class Camera:
         return backend
 
     def _capture_loop(self) -> None:
-        """Runs on the background thread until stop(); reopens the device on
-        failure, or on a source switch requested from another thread."""
+        """Runs on the background thread until stop(); reopens the device on failure."""
         while not self._stop_event.is_set():
-            if self._pending_switch is not None:
-                self._reconnect()
-                continue
             assert self._backend is not None
             frame = self._backend.read()
             if frame is None:
@@ -230,34 +194,10 @@ class Camera:
             with self._lock:
                 self._frame = frame
 
-    def _take_pending_switch(self) -> tuple[str, int | str | None] | None:
-        with self._switch_lock:
-            pending, self._pending_switch = self._pending_switch, None
-        return pending
-
     def _reconnect(self) -> None:
-        """Reopen the device — after a read failure, or a requested source
-        switch (self._pending_switch), consumed here so it's only ever
-        applied on the thread that already owns the device. Checked on every
-        retry, not just the first, so a switch requested while a previous one
-        is still failing to open takes over immediately instead of waiting
-        out the failed one's retry delay."""
         if self._backend is not None:
             self._backend.release()
-            self._backend = None
         while not self._stop_event.is_set():
-            pending = self._take_pending_switch()
-            if pending is not None:
-                backend, device = pending
-                logger.info(
-                    "camera: switching source to %s%s",
-                    backend, f" (device {device!r})" if device is not None else "",
-                )
-                self._backend_choice = backend
-                if device is not None:
-                    self._device = device
-                with self._lock:
-                    self._frame = None
             try:
                 self._backend = self._open()
             except RuntimeError:

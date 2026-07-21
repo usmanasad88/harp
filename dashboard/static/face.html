@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HARP Face</title>
+<link rel="stylesheet" href="/face.css" />
+</head>
+<body>
+  <!-- Full-screen animated face for the robot's face display. Same glowing
+       cyan eyes/mouth design as the original harp/motion/face.html, but fed
+       by the dashboard's existing /ws bus stream instead of a second HTTP
+       server polled every 300ms — see face.js. -->
+  <div id="face" class="face sad">
+    <div class="eye"></div>
+    <div class="eye"></div>
+    <div class="mouth-wrap"><div class="mouth"></div></div>
+  </div>
+
+  <script src="/face.js" defer></script>
+</body>
+</html>

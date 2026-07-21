@@ -129,11 +129,12 @@ class PushToTalkSettings:
 
 @dataclass
 class CameraSettings:
-    """The shared camera (harp/vision/camera) feeding gestures, face-ID, and
-    the memory helper's snapshots. `backend: auto` uses a RealSense's color
-    stream when one is plugged in, else the webcam; pin it to `webcam` when the
-    standalone motion process should keep the RealSense (one process owns it),
-    or `realsense` to refuse the webcam fallback. `webcam_index` /
+    """The shared camera (harp/vision/camera) feeding gestures, face-ID, head
+    tracking, and the memory helper's snapshots. `backend: auto` uses a
+    RealSense's color stream when one is plugged in, else the webcam; pin it to
+    `webcam` when a STILL-standalone motion process should keep the RealSense
+    (one process owns it), or `realsense` to refuse the webcam fallback.
+    `webcam_index` /
     `usb_webcam_index` pick which attached webcam is "the laptop's own" vs.
     "the USB one" for the dashboard's camera-source dropdown (see
     CAMERA_SOURCE_CHOICES) — indices are OS-assigned per device, so adjust
@@ -251,11 +252,35 @@ class MotionSettings:
     (harp/motion/follow, the live model's follow_person tool), which drives
     toward a person face-ID recognizes, steering to keep their face in a
     central box and stopping once they are close enough (face size as the
-    distance proxy — the shared camera has no depth)."""
+    distance proxy — the shared camera has no depth).
+
+    The gimbal_* knobs drive a THIRD, independent thing: the servo head's face
+    tracking (harp/motion/head_tracker), which keeps a detected face centered
+    by reading the SHARED camera's frames — no second RealSense open, so it
+    runs inside `python -m harp` instead of the standalone motion process.
+    `gimbal_enabled` gates it on its own (a robot can track with its head
+    without the wheels, or vice versa); `gimbal_port` is the ESP32 head's serial
+    port (find it with `python -m harp.motion --list-ports`); `face_server_port`
+    is where the animated-face page (face.html) is served for the kiosk."""
 
     enabled: bool = False
     left_port: str = "COM4"
     right_port: str = "COM5"
+    # Head gimbal face tracking (harp/motion/head_tracker) — the shared camera
+    # feeds it, so it needs no second RealSense. Independent of `enabled` above.
+    gimbal_enabled: bool = False
+    gimbal_port: str = "COM5"
+    face_server_port: int = 8788
+    # Pop the animated face page open fullscreen (Edge kiosk) at boot, the way
+    # start_harp.bat used to — best-effort, Windows/Edge only, only when head
+    # tracking actually started (so the face server is up). Off for a headless
+    # /dev run; the page stays reachable by URL either way.
+    face_kiosk: bool = False
+    # Which display the fullscreen kiosk opens on: 1 = primary (default), 2 =
+    # the second/extended monitor, and so on. Windows only; if that display
+    # isn't found it falls back to the primary. Edge fullscreens on the monitor
+    # holding the window's top-left, so this just seeds the position there.
+    face_kiosk_monitor: int = 1
     base_speed: int = 350        # forward wheel rpm
     turn_speed: int = 300        # in-place turn rpm
     side_length: float = 3.0     # stall boundary side, meters

@@ -5,11 +5,14 @@ Python, per PLAN.md "Motion / robot body": pyserial talks to the hardware
 directly, pygame replaces the Linux-only evdev controller reader, and
 in-process wiring replaces the ROS 2 topics.
 
-Phase 1 is a standalone entry point — `uv run python -m harp.motion` — that
+Two ways in. The standalone entry point — `uv run python -m harp.motion` —
 runs face tracking (RealSense or webcam) driving the gimbal, and PS5 teleop
-driving the base motors, without touching the rest of HARP. Wiring these
-subsystems onto the app's event bus (voice teleop tools, harp.yaml config)
-is the next phase.
+driving the base motors, without touching the rest of HARP; keep it for depth-
+based nearest-face tracking and hands-on teleop. The in-app wiring came after:
+the wheeled base's move_around + follow tools (controller.py / follow.py), and
+head_tracker.py — the gimbal head tracking reading the app's SHARED camera
+(no second RealSense), started by `python -m harp` itself and configured in
+harp.yaml (`motion:`).
 
 Every piece of hardware is optional: a missing serial port, camera, or
 controller disables just that part with a warning, never a crash.
