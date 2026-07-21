@@ -62,6 +62,27 @@ MoveAroundChanged (it must also announce the bounded lap finishing on its
 own, and starts arriving via the agent's move_around tool), so this handler
 only relays the request and surfaces failures as ErrorRaised. Wired by app.py
 only when harp.yaml `motion.enabled` — None = no button this run.
+
+A sixth exception, the simplest: the "face → monitor N" buttons. `/ws` accepts
+`{"type": "RelaunchFaceKiosk", "monitor": int}` and calls an injected
+`relaunch_face_kiosk(monitor)` which re-pops the animated-face page fullscreen
+on that 1-based display — for when a visitor minimized/moved the kiosk window,
+or it landed on the wrong screen and the operator (who can't see the laptop)
+needs to move it. Fire-and-forget — no confirmation event, since the launcher
+can't observe the window after spawning it; failures surface as ErrorRaised.
+The seed carries `monitor_count` so the page renders one button per display.
+Wired by app.py only when harp.yaml `motion.face_kiosk` is on — None = the
+buttons never appear.
+
+A seventh pair, simpler still (no injected callable at all): the "start/end
+session" button. `/ws` accepts `{"type": "StartSession"}` and `{"type":
+"EndSession"}` and just re-publishes the events the rest of the system already
+acts on — WakeRequested(reason="button") to open a session (the "button"
+reason also clears the exclusive push-to-talk wake veto) and
+EndOfInteractionDetected(cause="dashboard") to close one. The orchestrator
+owns the guards (a wake is honored only while STANDBY, an end only while
+ACTIVE), so no state is threaded here; the resulting StateChanged flips the
+button's label the same way it does for every other start/stop.
 """
 
 from __future__ import annotations
@@ -85,13 +106,16 @@ from websockets.http11 import Request, Response
 from ..core.bus import Bus
 from ..core.events import (
     CameraSourceChanged,
+    EndOfInteractionDetected,
     ErrorRaised,
     Event,
+    FaceKioskAvailable,
     MicMuteChanged,
     MoveAroundChanged,
     StateChanged,
     TalkKeyChanged,
     VoiceTuningChanged,
+    WakeRequested,
 )
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -133,6 +157,12 @@ GetCameraSourceFn = Callable[[], dict]
 # for seeding. Injected by app.py only when harp.yaml `motion.enabled`.
 SetMoveAroundFn = Callable[[bool], Awaitable[dict]]
 GetMoveAroundFn = Callable[[], dict]
+# The "face → monitor N" buttons: relaunch the animated-face page fullscreen on
+# a chosen 1-based display (harp/motion/head_tracker.open_face_kiosk, already
+# bound to the port by app.py — this call passes the monitor). A fire-and-forget
+# action — no confirmation event; failures surface as ErrorRaised. Injected by
+# app.py only when harp.yaml motion.face_kiosk is on (None = no buttons).
+RelaunchFaceKioskFn = Callable[[int], None]
 # Seeds for the end-user page (the bus never replays history): the current app
 # state ("standby"/"active"/...) and whether the talk key is held right now.
 GetAppStateFn = Callable[[], str]
@@ -206,11 +236,14 @@ async def _handle_command(
     set_voice_tuning: SetVoiceTuningFn | None,
     set_camera_source: SetCameraSourceFn | None,
     set_move_around: SetMoveAroundFn | None,
+    relaunch_face_kiosk: RelaunchFaceKioskFn | None,
 ) -> None:
     """Parse and act on one incoming client message. Only the recognized
-    shapes (SetMicMuted, SetVoiceTuning, SetCameraSource, SetMoveAround) do
-    anything; everything else is silently ignored — the dashboard's write
-    surface stays deliberately narrow rather than a general command channel."""
+    shapes (SetMicMuted, SetVoiceTuning, SetCameraSource, SetMoveAround,
+    RelaunchFaceKiosk, StartSession, EndSession) do anything; everything else
+    is silently ignored — the
+    dashboard's write surface stays deliberately narrow rather than a general
+    command channel."""
     try:
         msg = json.loads(raw)
     except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
@@ -225,6 +258,12 @@ async def _handle_command(
         await _handle_set_camera_source(msg, bus, set_camera_source)
     elif msg.get("type") == "SetMoveAround":
         await _handle_set_move_around(msg, bus, set_move_around)
+    elif msg.get("type") == "RelaunchFaceKiosk":
+        await _handle_relaunch_face_kiosk(msg, bus, relaunch_face_kiosk)
+    elif msg.get("type") == "StartSession":
+        await _handle_start_session(bus)
+    elif msg.get("type") == "EndSession":
+        await _handle_end_session(bus)
 
 
 async def _handle_set_mic_muted(
@@ -329,6 +368,54 @@ async def _handle_set_move_around(
         )
 
 
+async def _handle_relaunch_face_kiosk(
+    msg: dict, bus: Bus, relaunch_face_kiosk: RelaunchFaceKioskFn | None
+) -> None:
+    """The "face → monitor N" buttons: {type, monitor}. Re-pops the animated-
+    face page fullscreen on the requested 1-based display — for when the kiosk
+    window got minimized/moved, or landed on the wrong screen. Fire-and-forget:
+    no confirmation event, failures surface as ErrorRaised. The launch spawns a
+    browser (subprocess.Popen), so run it off the loop."""
+    monitor = msg.get("monitor", 1)
+    if not isinstance(monitor, int) or isinstance(monitor, bool) or monitor < 1:
+        return
+    if relaunch_face_kiosk is None:
+        await bus.publish(
+            ErrorRaised(
+                where="dashboard.face_kiosk",
+                message="face kiosk isn't available this run",
+            )
+        )
+        return
+    try:
+        await asyncio.to_thread(relaunch_face_kiosk, monitor)
+    except Exception as exc:  # best-effort launcher, but never drop the socket
+        await bus.publish(ErrorRaised(where="dashboard.face_kiosk", message=str(exc)))
+
+
+async def _handle_start_session(bus: Bus) -> None:
+    """The "start/end session" button, START half: {type: "StartSession"}.
+    Publishes WakeRequested(reason="button") — the same event the physical
+    talk button sends, so it opens a session AND passes the exclusive
+    push-to-talk wake veto (which only lets reason=="button" through). No
+    injected callable and no confirmation event: the orchestrator honors it
+    only while STANDBY (a click during a live session is a no-op) and the
+    session it opens publishes StateChanged/InteractionStarted, which already
+    reach the dashboard and flip the button's label."""
+    await bus.publish(WakeRequested(reason="button", context=""))
+
+
+async def _handle_end_session(bus: Bus) -> None:
+    """The "start/end session" button, END half: {type: "EndSession"}.
+    Publishes EndOfInteractionDetected so the orchestrator closes the live
+    session (ACTIVE → STANDBY). `cause="dashboard"` lets the status rule book
+    narrate a manual close distinctly; the orchestrator ignores it unless a
+    session is actually open, so a stray click while idle is harmless."""
+    await bus.publish(
+        EndOfInteractionDetected(reason="ended from dashboard", cause="dashboard")
+    )
+
+
 async def _receive_commands(
     connection: ServerConnection,
     bus: Bus,
@@ -336,10 +423,12 @@ async def _receive_commands(
     set_voice_tuning: SetVoiceTuningFn | None,
     set_camera_source: SetCameraSourceFn | None,
     set_move_around: SetMoveAroundFn | None,
+    relaunch_face_kiosk: RelaunchFaceKioskFn | None,
 ) -> None:
     async for raw in connection:
         await _handle_command(
-            raw, bus, set_mic_muted, set_voice_tuning, set_camera_source, set_move_around
+            raw, bus, set_mic_muted, set_voice_tuning, set_camera_source,
+            set_move_around, relaunch_face_kiosk,
         )
 
 
@@ -409,6 +498,24 @@ async def _send_initial_move_around(
         await connection.send(_encode(MoveAroundChanged(**snapshot)))
 
 
+async def _send_initial_face_kiosk(
+    connection: ServerConnection,
+    relaunch_face_kiosk: RelaunchFaceKioskFn | None,
+    face_monitor_count: int,
+) -> None:
+    """One-shot: reveal the face-kiosk controls only when the launcher is wired
+    this run (harp.yaml motion.face_kiosk brought the face server up), and tell
+    the page how many displays exist so it can render one "face → monitor N"
+    button each. Nothing to toggle — the buttons are plain actions — so this
+    just gates visibility, mirroring the move-around seed."""
+    if relaunch_face_kiosk is None:
+        return
+    with contextlib.suppress(ConnectionClosed):
+        await connection.send(
+            _encode(FaceKioskAvailable(available=True, monitor_count=face_monitor_count))
+        )
+
+
 async def _send_initial_snapshots(
     connection: ServerConnection,
     get_app_state: GetAppStateFn | None,
@@ -443,6 +550,8 @@ async def _stream_events(
     get_camera_source: GetCameraSourceFn | None,
     set_move_around: SetMoveAroundFn | None,
     get_move_around: GetMoveAroundFn | None,
+    relaunch_face_kiosk: RelaunchFaceKioskFn | None,
+    face_monitor_count: int,
     get_app_state: GetAppStateFn | None,
     get_talk_key_held: GetTalkKeyHeldFn | None,
 ) -> None:
@@ -450,13 +559,14 @@ async def _stream_events(
     await _send_initial_voice_tuning(connection, get_voice_tuning)
     await _send_initial_camera_source(connection, get_camera_source)
     await _send_initial_move_around(connection, get_move_around)
+    await _send_initial_face_kiosk(connection, relaunch_face_kiosk, face_monitor_count)
     await _send_initial_snapshots(connection, get_app_state, get_talk_key_held)
     stream = bus.subscribe()
     forward_task = asyncio.ensure_future(_forward_events(connection, stream))
     receive_task = asyncio.ensure_future(
         _receive_commands(
             connection, bus, set_mic_muted, set_voice_tuning, set_camera_source,
-            set_move_around,
+            set_move_around, relaunch_face_kiosk,
         )
     )
     try:
@@ -491,6 +601,8 @@ def _handler(
     get_camera_source: GetCameraSourceFn | None,
     set_move_around: SetMoveAroundFn | None,
     get_move_around: GetMoveAroundFn | None,
+    relaunch_face_kiosk: RelaunchFaceKioskFn | None,
+    face_monitor_count: int,
     get_app_state: GetAppStateFn | None,
     get_talk_key_held: GetTalkKeyHeldFn | None,
 ):
@@ -500,6 +612,7 @@ def _handler(
             set_voice_tuning, get_voice_tuning,
             set_camera_source, get_camera_source,
             set_move_around, get_move_around,
+            relaunch_face_kiosk, face_monitor_count,
             get_app_state, get_talk_key_held,
         )
 
@@ -519,6 +632,8 @@ def _build_server(
     get_camera_source: GetCameraSourceFn | None = None,
     set_move_around: SetMoveAroundFn | None = None,
     get_move_around: GetMoveAroundFn | None = None,
+    relaunch_face_kiosk: RelaunchFaceKioskFn | None = None,
+    face_monitor_count: int = 0,
     get_app_state: GetAppStateFn | None = None,
     get_talk_key_held: GetTalkKeyHeldFn | None = None,
 ) -> Server:
@@ -530,6 +645,7 @@ def _build_server(
             bus, set_mic_muted, get_mic_muted, set_voice_tuning, get_voice_tuning,
             set_camera_source, get_camera_source,
             set_move_around, get_move_around,
+            relaunch_face_kiosk, face_monitor_count,
             get_app_state, get_talk_key_held,
         ),
         host,
@@ -551,21 +667,24 @@ async def serve(
     get_camera_source: GetCameraSourceFn | None = None,
     set_move_around: SetMoveAroundFn | None = None,
     get_move_around: GetMoveAroundFn | None = None,
+    relaunch_face_kiosk: RelaunchFaceKioskFn | None = None,
+    face_monitor_count: int = 0,
     get_app_state: GetAppStateFn | None = None,
     get_talk_key_held: GetTalkKeyHeldFn | None = None,
     open_browser: bool = False,
 ) -> None:
     """Run the dashboard server, bound to the bus, until cancelled. Observes
     everything; the things it can act on are the mic-mute button, the voice
-    noise/VAD tuning sliders, the camera-source dropdown, and the move-around
-    patrol button (see the module docstring). `open_browser` pops the
-    dashboard open once the socket is actually bound — opt-in so the
-    standalone `python -m harp.dashboard` and tests importing this module
-    don't get a surprise browser tab."""
+    noise/VAD tuning sliders, the camera-source dropdown, the move-around
+    patrol button, and the face-kiosk monitor buttons (see the module
+    docstring). `open_browser` pops the dashboard open once the socket is
+    actually bound — opt-in so the standalone `python -m harp.dashboard` and
+    tests importing this module don't get a surprise browser tab."""
     async with _build_server(
         bus, host, port, snapshot, set_mic_muted, get_mic_muted,
         set_voice_tuning, get_voice_tuning, set_camera_source, get_camera_source,
         set_move_around, get_move_around,
+        relaunch_face_kiosk, face_monitor_count,
         get_app_state, get_talk_key_held,
     ) as server:
         print(f"HARP dashboard: http://{host}:{port}")

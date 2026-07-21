@@ -73,6 +73,9 @@ RULES: dict[str, str | None] = {
     # The provider closed the stream (server-side session limit, clean network
     # drop). Nothing was said in-session, keep it neutral.
     "session_end.provider": "going_standby",
+    # A human clicked "end session" on the dashboard. A deliberate, silent
+    # close — keep it neutral (no goodbye, the operator knows what they did).
+    "session_end.dashboard": "going_standby",
     # Fallback for any end whose cause isn't mapped above (or is empty —
     # e.g. an event published by an older/simpler caller).
     "session_end": "going_standby",

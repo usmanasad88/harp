@@ -69,6 +69,18 @@ main {
   gap: 12px;
 }
 
+/* The face-kiosk "face → monitor N" buttons share one flex slot in the bar so
+   a variable number of them (one per display) lays out inline without each
+   taking a full mute-bar column. */
+.kiosk-btns {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+}
+.kiosk-btns[hidden] {
+  display: none;
+}
+
 .mute-btn {
   flex: 1;
   padding: 20px;

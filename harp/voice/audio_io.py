@@ -9,6 +9,7 @@ upgrade, not needed to prove the architecture.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 
 import sounddevice as sd
@@ -69,8 +70,16 @@ class Speaker:
         return self
 
     async def __aexit__(self, *exc) -> None:
+        # Cancel the writer AND wait for it to actually finish before touching
+        # the stream. _run() offloads stream.write to a worker thread via
+        # to_thread; cancel() only unblocks the awaiting task, it does not stop
+        # a write already running on that thread. Closing the stream out from
+        # under an in-flight write frees ALSA/PortAudio buffers mid-use — heap
+        # corruption ("unaligned fastbin chunk", pa_linux_alsa.c failures).
         if self._task is not None:
             self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()

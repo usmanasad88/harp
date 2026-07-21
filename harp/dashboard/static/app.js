@@ -77,9 +77,15 @@ function setConnected(connected) {
     // would be a guess, not a fact. Same for the patrol state.
     micMuted = null;
     moveActive = null;
+    kioskAvailable = false;
+    kioskMonitorCount = 0;
+    appState = null;
   }
   updateMuteButton();
   updateMoveButton();
+  buildFaceKioskButtons();
+  updateFaceKioskButtons();
+  updateSessionButton();
 }
 
 // --- dispatch -----------------------------------------------------------
@@ -113,6 +119,9 @@ function handleMessage(msg) {
       break;
     case "MoveAroundChanged":
       renderMoveAround(msg.fields);
+      break;
+    case "FaceKioskAvailable":
+      renderFaceKiosk(msg.fields);
       break;
     case "VoiceTuningChanged":
       renderVoiceTuning(msg.fields);
@@ -184,6 +193,53 @@ muteBtn.addEventListener("click", () => {
   ws.send(JSON.stringify({ type: "SetMicMuted", muted: !micMuted }));
 });
 
+// --- start / end session button ------------------------------------------
+// Manually open or close a live voice session from the dashboard. Clicking
+// sends {type: "StartSession"} (while idle) or {type: "EndSession"} (while a
+// session is live); the server publishes the same WakeRequested("button") /
+// EndOfInteractionDetected the physical talk button and end-rules use. The
+// label follows the app's own state — it flips only when StateChanged comes
+// back, so it tracks ALL starts/stops (talk button, timeouts, the agent
+// hanging up), not just its own clicks. appState is null until the first
+// StateChanged arrives (the bus doesn't replay history to a fresh tab), so a
+// tab opened mid-session shows "connecting…" until the next transition.
+
+const sessionBtn = document.getElementById("session-btn");
+let appState = null; // null = not known yet; else "standby" | "active" | ...
+
+function updateSessionButton() {
+  if (appState === null || !ws || ws.readyState !== WebSocket.OPEN) {
+    sessionBtn.disabled = true;
+    sessionBtn.textContent = "session — connecting…";
+    sessionBtn.className = "mute-btn";
+    return;
+  }
+  // Only idle (standby) and active are actionable; during starting / error /
+  // stopping the orchestrator would ignore the command, so disable the button.
+  if (appState === "standby") {
+    sessionBtn.disabled = false;
+    sessionBtn.textContent = "start session";
+    sessionBtn.className = "mute-btn live";
+  } else if (appState === "active") {
+    sessionBtn.disabled = false;
+    sessionBtn.textContent = "SESSION LIVE — tap to end";
+    sessionBtn.className = "mute-btn moving";
+  } else {
+    sessionBtn.disabled = true;
+    sessionBtn.textContent = "session — " + appState;
+    sessionBtn.className = "mute-btn";
+  }
+}
+
+sessionBtn.addEventListener("click", () => {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (appState === "standby") {
+    ws.send(JSON.stringify({ type: "StartSession" }));
+  } else if (appState === "active") {
+    ws.send(JSON.stringify({ type: "EndSession" }));
+  }
+});
+
 // --- move around (base patrol) button ------------------------------------
 // Confirmation-based like the mute button: clicking sends {type:
 // "SetMoveAround", active}; the label only flips when the motion controller's
@@ -220,6 +276,56 @@ moveBtn.addEventListener("click", () => {
   if (moveActive === null || !ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "SetMoveAround", active: !moveActive }));
 });
+
+// --- face kiosk monitor buttons ------------------------------------------
+// Plain actions, not toggles: each click sends {type: "RelaunchFaceKiosk",
+// monitor} and the server re-pops the fullscreen face page on that 1-based
+// display — for when a visitor minimized/moved the kiosk window or it landed on
+// the wrong screen (the operator can't see the laptop, so they pick the right
+// display remotely). No state to track and no confirmation event (the launcher
+// can't watch the window it spawned), so the buttons just fire. Hidden until a
+// FaceKioskAvailable seed arrives; its monitor_count says how many displays to
+// offer — 0 (e.g. non-Windows, no enumeration) means a single "reset face
+// kiosk" that relaunches on monitor 1.
+
+const kioskBtns = document.getElementById("kiosk-btns");
+let kioskAvailable = false;
+let kioskMonitorCount = 0;
+
+function renderFaceKiosk(fields) {
+  kioskAvailable = fields.available;
+  kioskMonitorCount = fields.monitor_count || 0;
+  buildFaceKioskButtons();
+  updateFaceKioskButtons();
+}
+
+function buildFaceKioskButtons() {
+  kioskBtns.replaceChildren();
+  if (!kioskAvailable) return;
+  if (kioskMonitorCount <= 0) {
+    // Displays not enumerated — one button, relaunch on the primary.
+    kioskBtns.appendChild(makeKioskButton("reset face kiosk", 1));
+    return;
+  }
+  for (let m = 1; m <= kioskMonitorCount; m++) {
+    kioskBtns.appendChild(makeKioskButton(`face → monitor ${m}`, m));
+  }
+}
+
+function makeKioskButton(label, monitor) {
+  const btn = el("button", { className: "mute-btn", text: label });
+  btn.addEventListener("click", () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "RelaunchFaceKiosk", monitor }));
+  });
+  return btn;
+}
+
+function updateFaceKioskButtons() {
+  kioskBtns.hidden = !kioskAvailable;
+  const disabled = !ws || ws.readyState !== WebSocket.OPEN;
+  for (const btn of kioskBtns.children) btn.disabled = disabled;
+}
 
 // --- voice tuning (noise/VAD, whichever agent owns the mic) --------------
 // Sliders for the loudness gate + server-VAD + noise reduction. Confirmation-
@@ -276,6 +382,8 @@ function renderState(fields) {
   const row = el("div", { className: "kv" });
   row.appendChild(el("span", { text: fields.old + " → " + fields.new }));
   body.appendChild(row);
+  appState = fields.new;
+  updateSessionButton();
 }
 
 // --- presence panel ------------------------------------------------------

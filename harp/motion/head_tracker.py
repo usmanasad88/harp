@@ -66,6 +66,48 @@ def _find_msedge() -> str | None:
     return None
 
 
+def _find_chrome() -> str | None:
+    """Locate Google Chrome. On PATH under several names on Linux (google-chrome,
+    google-chrome-stable, chromium, ...); on Windows it's registered via App
+    Paths like Edge, so shutil.which usually misses chrome.exe and we fall back
+    to the standard install dirs."""
+    for name in ("google-chrome", "google-chrome-stable", "chrome", "chromium",
+                 "chromium-browser"):
+        found = shutil.which(name)
+        if found:
+            return found
+    for var in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"):
+        base = os.environ.get(var)
+        if not base:
+            continue
+        path = os.path.join(base, "Google", "Chrome", "Application", "chrome.exe")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _find_kiosk_browser() -> tuple[str, str] | None:
+    """The browser to launch the fullscreen face in, as (exe_path, family) where
+    family is "chrome" or "edge". Chrome first (the user tests on it, and it's
+    the one that falls back in on Linux), then Edge (ships on every Windows
+    laptop). None = neither found, so the caller opens the default browser."""
+    chrome = _find_chrome()
+    if chrome is not None:
+        return (chrome, "chrome")
+    edge = _find_msedge()
+    if edge is not None:
+        return (edge, "edge")
+    return None
+
+
+def monitor_count() -> int:
+    """How many displays the OS reports (Windows only; 0 elsewhere or on any API
+    error). The dashboard uses this to render one "face → monitor N" button per
+    display so an operator with no access to the laptop can move the fullscreen
+    face to the right screen."""
+    return len(_monitor_rects())
+
+
 # How far inside a monitor's top-left we aim the kiosk window. Not zero: right
 # on the shared edge, DPI rounding can bleep the window onto the neighbor, which
 # is exactly the "opened on the laptop, not the HDMI" failure.
@@ -177,48 +219,65 @@ def _kiosk_position(monitor: int) -> tuple[int, int] | None:
 
 
 def open_face_kiosk(port: int, monitor: int = 1) -> None:
-    """Open the animated face page fullscreen in Edge kiosk mode — what
-    start_harp.bat's `start msedge --kiosk ... --edge-kiosk-type=fullscreen`
-    line did, now done by the app itself. `monitor` (1-based, 1 = primary) picks
-    which display it fullscreens on: Edge goes fullscreen on the monitor holding
-    the window's top-left, so we seed --window-position on the target display.
+    """Open the animated face page borderless-fullscreen (Chromium `--kiosk`) in
+    Chrome or Edge — what start_harp.bat's `start msedge --kiosk ...` line did,
+    now done by the app itself and re-runnable from the dashboard button.
+    `monitor` (1-based, 1 = primary) picks which display it fullscreens on:
+    Chromium goes fullscreen on the monitor holding the window's top-left, so we
+    seed --window-position on the target display (Windows only — that's where we
+    can enumerate displays; elsewhere it just fullscreens on the current one).
 
-    Targeting a non-primary monitor also forces a dedicated --user-data-dir: if
-    Edge is ALREADY running, a plain `msedge ...` just hands the URL to the
-    existing process and silently drops the window flags (that's why the kiosk
-    kept landing on the laptop) — a separate profile makes this a fresh process
-    that honors them.
+    Each launch uses a dedicated, per-monitor --user-data-dir so it's always a
+    FRESH browser process: a plain `chrome/msedge URL` when the browser is
+    already running just hands the URL to the existing process and silently
+    drops the window flags (that's why the kiosk kept landing on the laptop),
+    and a per-monitor profile lets the dashboard's "face → monitor N" buttons
+    each own their own window rather than fighting over one.
 
-    Best-effort: if Edge can't be found or launched, fall back to the default
-    browser (which can't be steered to a monitor); the page is still reachable
-    by URL regardless. Call it only once the face server is listening (it binds
-    synchronously in face_server.start, so right after that is safe)."""
+    `--kiosk` is applied whenever a browser is found — even with no monitor
+    positioning (e.g. on Linux) — so it opens truly fullscreen, not a plain tab
+    you'd have to F11. Best-effort: if neither Chrome nor Edge is found, fall
+    back to the default browser (a normal tab, no fullscreen/monitor control);
+    the page is still reachable by URL. Call it only once the face server is
+    listening (it binds synchronously in face_server.start, so right after that
+    is safe)."""
     url = f"http://127.0.0.1:{port}/face.html"
-    edge = _find_msedge()
-    if edge is not None:
-        args = [edge, "--kiosk", url, "--edge-kiosk-type=fullscreen"]
+    browser = _find_kiosk_browser()
+    if browser is not None:
+        exe, family = browser
         position = _kiosk_position(monitor)
+        # A per-monitor profile dir so each "face → monitor N" launch is its own
+        # fresh window (see docstring). --no-first-run / --disable-session-
+        # crashed-bubble keep a fresh profile from marring the face screen with
+        # a first-run page or a "restore pages?" bar.
+        profile = os.path.join(tempfile.gettempdir(), f"harp-face-kiosk-{monitor}")
+        args = [
+            exe,
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--disable-session-crashed-bubble",
+            "--kiosk",
+            url,
+        ]
+        # Edge understands an extra flag that forces true fullscreen kiosk (vs
+        # its "print/scan" kiosk variants); harmless to omit for Chrome.
+        if family == "edge":
+            args.append("--edge-kiosk-type=fullscreen")
         if position is not None:
-            profile = os.path.join(tempfile.gettempdir(), "harp-face-kiosk")
-            # Inserted before --kiosk so they apply as the window is created.
-            # --no-first-run / --disable-session-crashed-bubble keep the fresh
-            # profile from marring the face screen with a first-run or "restore
-            # pages" bar.
-            args[1:1] = [
-                f"--user-data-dir={profile}",
-                f"--window-position={position[0]},{position[1]}",
-                "--no-first-run",
-                "--disable-session-crashed-bubble",
-            ]
+            # Before --kiosk/url so it applies as the window is created.
+            args[4:4] = [f"--window-position={position[0]},{position[1]}"]
         try:
             subprocess.Popen(args)
             where = f" on monitor {monitor}" if position is not None else ""
-            logger.info("face kiosk: opened %s in Edge fullscreen%s", url, where)
+            logger.info("face kiosk: opened %s in %s fullscreen%s", url, family, where)
             return
         except OSError as exc:
-            logger.warning("face kiosk: could not launch Edge (%s) — using default browser", exc)
+            logger.warning(
+                "face kiosk: could not launch %s (%s) — using default browser",
+                family, exc,
+            )
     else:
-        logger.info("face kiosk: Edge not found — opening %s in the default browser", url)
+        logger.info("face kiosk: no Chrome/Edge found — opening %s in the default browser", url)
     try:
         webbrowser.open(url)
     except Exception as exc:  # webbrowser can raise assorted platform errors

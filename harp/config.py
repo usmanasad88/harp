@@ -272,9 +272,10 @@ class MotionSettings:
     gimbal_port: str = "COM5"
     face_server_port: int = 8788
     # Pop the animated face page open fullscreen (Edge kiosk) at boot, the way
-    # start_harp.bat used to — best-effort, Windows/Edge only, only when head
-    # tracking actually started (so the face server is up). Off for a headless
-    # /dev run; the page stays reachable by URL either way.
+    # start_harp.bat used to — best-effort, Windows/Edge only. Opens whether or
+    # not head tracking came up: if the gimbal/detector fails or there's no
+    # camera, the face server is started on its own so the page still shows.
+    # Off for a headless /dev run; the page stays reachable by URL either way.
     face_kiosk: bool = False
     # Which display the fullscreen kiosk opens on: 1 = primary (default), 2 =
     # the second/extended monitor, and so on. Windows only; if that display

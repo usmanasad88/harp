@@ -8,6 +8,8 @@ port closes. Fake gimbal + detector keep it hardware-free (no ESP32, no ONNX).""
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
 import threading
 
 import numpy as np
@@ -109,55 +111,79 @@ async def test_no_frame_keeps_ticking_but_never_tracks():
     assert gimbal.closed is True
 
 
-def test_face_kiosk_launches_edge_fullscreen(monkeypatch):
+def _rect(x, y, w=1920, h=1080, primary=False):
+    """A _monitor_rects()-shaped entry: ((left, top, right, bottom), is_primary)."""
+    return ((x, y, x + w, y + h), primary)
+
+
+def test_face_kiosk_launches_chrome_fullscreen(monkeypatch):
     calls: list[list[str]] = []
-    monkeypatch.setattr(head_tracker_mod, "_find_msedge", lambda: r"C:\edge\msedge.exe")
+    # Chrome is preferred and found; no monitor enumeration (as on Linux).
+    monkeypatch.setattr(head_tracker_mod, "_find_chrome", lambda: "/usr/bin/google-chrome")
+    monkeypatch.setattr(head_tracker_mod, "_monitor_rects", lambda: [])
     monkeypatch.setattr(head_tracker_mod.subprocess, "Popen", lambda args, **kw: calls.append(args))
-    # Edge is available → we launch it with the kiosk flags, no browser fallback.
     monkeypatch.setattr(
         head_tracker_mod.webbrowser, "open",
-        lambda url: pytest.fail("should not fall back to webbrowser when Edge is found"),
+        lambda url: pytest.fail("should not fall back to webbrowser when a browser is found"),
     )
     open_face_kiosk(8788)
-    assert calls == [
-        [r"C:\edge\msedge.exe", "--kiosk",
-         "http://127.0.0.1:8788/face.html", "--edge-kiosk-type=fullscreen"]
-    ]
+    # --kiosk is applied even with no monitor positioning (so it's real
+    # fullscreen, not a plain tab). No Edge-only flag for Chrome.
+    assert calls == [[
+        "/usr/bin/google-chrome",
+        "--user-data-dir=" + os.path.join(tempfile.gettempdir(), "harp-face-kiosk-1"),
+        "--no-first-run", "--disable-session-crashed-bubble",
+        "--kiosk", "http://127.0.0.1:8788/face.html",
+    ]]
+
+
+def test_face_kiosk_falls_back_to_edge_when_no_chrome(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(head_tracker_mod, "_find_chrome", lambda: None)
+    monkeypatch.setattr(head_tracker_mod, "_find_msedge", lambda: r"C:\edge\msedge.exe")
+    monkeypatch.setattr(head_tracker_mod, "_monitor_rects", lambda: [])
+    monkeypatch.setattr(head_tracker_mod.subprocess, "Popen", lambda args, **kw: calls.append(args))
+    open_face_kiosk(8788)
+    # Edge gets the extra --edge-kiosk-type flag that forces true fullscreen.
+    assert calls[0][-1] == "--edge-kiosk-type=fullscreen"
+    assert calls[0][0] == r"C:\edge\msedge.exe"
+    assert "--kiosk" in calls[0]
 
 
 def test_face_kiosk_opens_on_second_monitor(monkeypatch):
     calls: list[list[str]] = []
-    monkeypatch.setattr(head_tracker_mod, "_find_msedge", lambda: r"C:\edge\msedge.exe")
+    monkeypatch.setattr(head_tracker_mod, "_find_chrome", lambda: "/usr/bin/google-chrome")
     monkeypatch.setattr(head_tracker_mod.subprocess, "Popen", lambda args, **kw: calls.append(args))
     # Primary at (0, 0), the extended screen to its right at (1920, 0).
-    monkeypatch.setattr(head_tracker_mod, "_monitor_origins", lambda: [(0, 0), (1920, 0)])
+    monkeypatch.setattr(
+        head_tracker_mod, "_monitor_rects",
+        lambda: [_rect(0, 0, primary=True), _rect(1920, 0)],
+    )
     open_face_kiosk(8788, monitor=2)
-    # The kiosk is seeded on the second display so Edge fullscreens it there.
-    assert calls == [
-        [r"C:\edge\msedge.exe", "--window-position=1920,0", "--kiosk",
-         "http://127.0.0.1:8788/face.html", "--edge-kiosk-type=fullscreen"]
-    ]
+    # The kiosk window is seeded a little INSIDE the second display's top-left
+    # (the _KIOSK_INSET) so it fullscreens there, and uses a monitor-2 profile.
+    args = calls[0]
+    assert "--window-position=2020,100" in args
+    assert "--user-data-dir=" + os.path.join(tempfile.gettempdir(), "harp-face-kiosk-2") in args
 
 
 def test_face_kiosk_missing_monitor_falls_back_to_primary(monkeypatch):
     calls: list[list[str]] = []
-    monkeypatch.setattr(head_tracker_mod, "_find_msedge", lambda: r"C:\edge\msedge.exe")
+    monkeypatch.setattr(head_tracker_mod, "_find_chrome", lambda: "/usr/bin/google-chrome")
     monkeypatch.setattr(head_tracker_mod.subprocess, "Popen", lambda args, **kw: calls.append(args))
     # Only one display present, but monitor 2 was asked for → no positioning.
-    monkeypatch.setattr(head_tracker_mod, "_monitor_origins", lambda: [(0, 0)])
+    monkeypatch.setattr(head_tracker_mod, "_monitor_rects", lambda: [_rect(0, 0, primary=True)])
     open_face_kiosk(8788, monitor=2)
-    assert calls == [
-        [r"C:\edge\msedge.exe", "--kiosk",
-         "http://127.0.0.1:8788/face.html", "--edge-kiosk-type=fullscreen"]
-    ]
+    assert not any(a.startswith("--window-position=") for a in calls[0])
 
 
-def test_face_kiosk_falls_back_to_default_browser_without_edge(monkeypatch):
+def test_face_kiosk_falls_back_to_default_browser_without_a_browser(monkeypatch):
     opened: list[str] = []
+    monkeypatch.setattr(head_tracker_mod, "_find_chrome", lambda: None)
     monkeypatch.setattr(head_tracker_mod, "_find_msedge", lambda: None)
     monkeypatch.setattr(head_tracker_mod.webbrowser, "open", opened.append)
     open_face_kiosk(8788)
-    # No Edge → the page still opens somewhere, at the same URL.
+    # No Chrome/Edge → the page still opens somewhere, at the same URL.
     assert opened == ["http://127.0.0.1:8788/face.html"]
 
 

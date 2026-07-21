@@ -1,8 +1,16 @@
 """Tiny local HTTP server that shares gimbal face state with the face.html page.
 
 Runs in a background thread alongside the tracker. Two endpoints:
-  GET /state     -> {"face": true|false, "ts": <unix time>}
+  GET /state     -> {"face": bool, "interaction": <phase>, "ts": <unix time>}
   GET /face.html -> serves the animated face page from the same folder
+
+`face` is webcam face-presence (set by the head tracker). `interaction` is the
+push-to-talk conversation phase the app forwards here so the face can react to
+the whole exchange, not just whether it sees someone:
+  idle       — a session is (or was) open, nobody talking right now
+  listening  — the talk key is held (face goes green)
+  thinking   — key released, waiting on the reply (eyes drift)
+  talking    — the agent is speaking (mouth animates)
 """
 
 from __future__ import annotations
@@ -16,7 +24,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 logger = logging.getLogger("harp.motion.face_server")
 
-_state = {"face": False, "ts": time.time()}
+# interaction phases the face.html page knows how to render; "idle" is the
+# resting phase (no conversation activity), the default at startup.
+_state = {"face": False, "interaction": "idle", "ts": time.time()}
 _lock = threading.Lock()
 
 FACE_HTML_PATH = os.path.join(os.path.dirname(__file__), "face.html")
@@ -25,6 +35,14 @@ FACE_HTML_PATH = os.path.join(os.path.dirname(__file__), "face.html")
 def set_face_present(present: bool) -> None:
     with _lock:
         _state["face"] = present
+        _state["ts"] = time.time()
+
+
+def set_interaction(phase: str) -> None:
+    """Push-to-talk conversation phase: idle | listening | thinking | talking.
+    Fed by the app from the same bus events the dashboard's kiosk page reads."""
+    with _lock:
+        _state["interaction"] = phase
         _state["ts"] = time.time()
 
 

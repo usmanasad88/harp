@@ -299,3 +299,42 @@ async def test_move_around_unavailable_when_motion_disabled():
             await client.send(json.dumps({"type": "SetMoveAround", "active": True}))
             err = await _recv_type(client, "ErrorRaised")
             assert err["fields"]["where"] == "dashboard.move_around"
+
+
+async def test_relaunch_face_kiosk_seeds_count_and_launches_chosen_monitor():
+    """When face_kiosk is on, a fresh connection is seeded with the display
+    count (so the page can render one button per monitor), and clicking a
+    button invokes the (sync) launcher with THAT monitor, off the loop."""
+    calls = []
+    bus = Bus()
+    async with _build_server(
+        bus, "127.0.0.1", 0,
+        relaunch_face_kiosk=lambda monitor: calls.append(monitor),
+        face_monitor_count=2,
+    ) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            # A fresh connection is seeded so the page can reveal the buttons.
+            seed = await _recv_type(client, "FaceKioskAvailable")
+            assert seed["fields"]["available"] is True
+            assert seed["fields"]["monitor_count"] == 2
+
+            await client.send(json.dumps({"type": "RelaunchFaceKiosk", "monitor": 2}))
+            # No confirmation event, so poll until the launcher has run.
+            for _ in range(50):
+                if calls:
+                    break
+                await asyncio.sleep(0.02)
+            assert calls == [2]
+
+
+async def test_face_kiosk_unavailable_when_not_configured():
+    """face_kiosk off (app.py passes relaunch_face_kiosk=None) — no seed event,
+    and a stray click fails cleanly rather than crashing the connection."""
+    bus = Bus()
+    async with _build_server(bus, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as client:
+            await client.send(json.dumps({"type": "RelaunchFaceKiosk", "monitor": 1}))
+            err = await _recv_type(client, "ErrorRaised")
+            assert err["fields"]["where"] == "dashboard.face_kiosk"

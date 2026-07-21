@@ -255,6 +255,21 @@ class Heartbeat(Event):
 
 
 @dataclass
+class FaceKioskAvailable(Event):
+    """Seed-only: tells a fresh dashboard connection whether the face-kiosk
+    controls should appear, and how many displays exist so the page can render
+    one "face → monitor N" button each. Never published to the bus — the server
+    sends it once per connection when harp.yaml motion.face_kiosk brought the
+    face server up this run (mirrors the move-around button's hidden-until-
+    seeded visibility). monitor_count 0 = the OS didn't report displays (e.g.
+    non-Windows); the page then shows a single "reset face kiosk" button that
+    relaunches on monitor 1."""
+
+    available: bool = True
+    monitor_count: int = 0
+
+
+@dataclass
 class ErrorRaised(Event):
     """A subsystem failed. `fatal` decides whether the orchestrator narrates +
     retries (non-fatal) or heads for STOPPING (fatal)."""

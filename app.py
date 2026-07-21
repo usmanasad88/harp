@@ -66,6 +66,7 @@ from .config import (
     PEOPLE_STORE,
     REPO_ROOT,
     STATUS_VOICE_DIR,
+    CameraSourceState,
     VoiceTuning,
     build_filter_config,
     build_session_config,
@@ -412,11 +413,31 @@ async def run_app(provider_name: str = "gemini") -> None:
     print("HARP user screen: add /user to any URL above (full-screen visitor page)")
 
     snapshot = None
+    set_camera_source = None
+    get_camera_source = None
     if camera is not None:
         assert gestures is not None and face_id is not None
         snapshot = functools.partial(
             jpeg_snapshot, camera, overlays=(gestures.overlay, face_id.overlays)
         )
+        # The dashboard's camera-source dropdown. Seeded from harp.yaml's
+        # `camera:` section; picking a source records it and reopens the shared
+        # camera live via request_switch. Only wired when a camera actually
+        # started this run, so the dropdown stays hidden otherwise (the server
+        # sends CameraSourceChanged only when get_camera_source is present).
+        camera_source = CameraSourceState(
+            source=settings.camera.backend,
+            webcam_index=settings.camera.webcam_index,
+            usb_webcam_index=settings.camera.usb_webcam_index,
+        )
+
+        def get_camera_source() -> dict:
+            return {**camera_source.snapshot(), "backend": camera.active_backend()}
+
+        def set_camera_source(source: str) -> dict:
+            backend, device = camera_source.select(source)
+            camera.request_switch(backend, device)
+            return {**camera_source.snapshot(), "backend": camera.active_backend()}
 
     runners = {}
     if session_log is not None:
@@ -438,6 +459,10 @@ async def run_app(provider_name: str = "gemini") -> None:
             # whichever agent currently owns the mic (plain bridge or filter).
             set_voice_tuning=voice_tuning.apply,
             get_voice_tuning=voice_tuning.snapshot,
+            # The camera-source dropdown — only injected when a camera started
+            # this run (both are None otherwise, keeping the dropdown hidden).
+            set_camera_source=set_camera_source,
+            get_camera_source=get_camera_source,
             # Seeds for the end-user page (/user): the bus never replays, so a
             # fresh/reconnected kiosk gets the current state + talk-key hold.
             get_app_state=lambda: orchestrator.state.value,

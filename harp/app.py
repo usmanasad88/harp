@@ -52,7 +52,12 @@ harp/motion/patrol_state.py) is wired here too: while patrol drives the wheels
 in a separate process, voice wakes are silently ignored — checked via a tiny
 local HTTP flag, imports nothing from harp.motion.
 
-Not wired yet (joins here as each is built): web-search fallback, watchdog.
+The watchdog is a SEPARATE supervising process, not wired into this graph: it
+spawns `python -m harp` as a child and restarts it on crash or hang, watching
+the same `.harp/heartbeat` file the orchestrator touches every beat. Run it with
+`python -m harp.orchestrator.watchdog` (see that module).
+
+Not wired yet (joins here as each is built): web-search fallback.
 """
 
 from __future__ import annotations
@@ -90,6 +95,7 @@ from .config import (
     load_settings,
 )
 from .core.bus import Bus
+from .core.events import AgentSaid, StateChanged, TalkKeyChanged
 from .core.session_log import SessionLog
 from .dashboard.server import serve as serve_dashboard
 from .interaction import session_tools
@@ -107,7 +113,8 @@ from .memory.summarizer import MemorySummarizer
 from .motion import tools as motion_tools
 from .motion.controller import MoveAroundController
 from .motion.follow import FollowController
-from .motion.head_tracker import HeadTracker, open_face_kiosk
+from .motion import face_server
+from .motion.head_tracker import HeadTracker, monitor_count, open_face_kiosk
 from .orchestrator.orchestrator import Orchestrator
 from .orchestrator.status_rules import line_for
 from .orchestrator.status_voice import StatusVoice
@@ -399,6 +406,11 @@ async def run_app(provider_name: str = "gemini") -> None:
     # the head has nothing to track) and an ESP32 on gimbal_port; either missing
     # just disables head tracking for the run, never the voice side.
     head_tracker = None
+    # The face server (face.html) that the kiosk points at is up whenever head
+    # tracking started. If face_kiosk is on but head tracking never started —
+    # no camera this run, or the gimbal/detector failed to open — we still start
+    # the face server on its own so the fullscreen face page can pop regardless.
+    face_server_up = False
     if settings.motion.gimbal_enabled:
         if camera is None:
             logger.warning(
@@ -410,19 +422,41 @@ async def run_app(provider_name: str = "gemini") -> None:
                 head_tracker = await HeadTracker.create(
                     settings.motion, latest_frame=camera.latest
                 )
+                face_server_up = True
                 print(
                     f"Head tracking armed: gimbal on {settings.motion.gimbal_port}, "
                     f"face page http://127.0.0.1:{settings.motion.face_server_port}/face.html"
                 )
-                # The face server is listening now (bound synchronously in
-                # create); pop the fullscreen face page if harp.yaml asked for it.
-                if settings.motion.face_kiosk:
-                    open_face_kiosk(
-                        settings.motion.face_server_port,
-                        settings.motion.face_kiosk_monitor,
-                    )
             except Exception as exc:
                 logger.warning("head tracking disabled: %s", exc)
+
+    # Pop the fullscreen face page if harp.yaml asked for it — independent of
+    # whether head tracking actually came up. If it didn't, start the face
+    # server standalone first so the kiosk has something to show.
+    #
+    # relaunch_face_kiosk(monitor) re-runs that same launch on demand, targeting
+    # a chosen 1-based display: the dashboard's "face → monitor N" buttons call
+    # it to re-pop the fullscreen window on the right screen after a visitor
+    # minimized/moved it — the operator can't see the laptop, so they pick the
+    # display remotely. face_monitor_count tells the dashboard how many buttons
+    # to show. Both bound only when the face server is up this run.
+    relaunch_face_kiosk = None
+    face_monitor_count = 0
+    if settings.motion.face_kiosk:
+        if not face_server_up:
+            try:
+                face_server.start(port=settings.motion.face_server_port)
+                face_server_up = True
+            except OSError as exc:
+                logger.warning("face kiosk: could not start face server (%s)", exc)
+        if face_server_up:
+            relaunch_face_kiosk = functools.partial(
+                open_face_kiosk, settings.motion.face_server_port
+            )
+            face_monitor_count = monitor_count()
+            # NB: the boot launch is deferred to a runner (see "face_kiosk_boot"
+            # below) so it fires AFTER the dashboard opens its own browser tab —
+            # otherwise that tab steals focus back off the fullscreen face.
 
     def make_session_config():
         # Noise/VAD tuning (voice_tuning, below) is stamped onto this session
@@ -609,6 +643,14 @@ async def run_app(provider_name: str = "gemini") -> None:
             # the lap finishing on its own must announce through it too.
             set_move_around=move_around.set_active if move_around is not None else None,
             get_move_around=move_around.snapshot if move_around is not None else None,
+            # The "face → monitor N" buttons: re-pop the fullscreen face page on
+            # a chosen display (the operator can't see the laptop). Only wired
+            # when motion.face_kiosk brought the face server up this run — None /
+            # 0 means the buttons never appear. face_monitor_count is how many
+            # displays the OS reported (dashboard renders one button each; 0 on
+            # non-Windows, where a single "reset face kiosk" button is shown).
+            relaunch_face_kiosk=relaunch_face_kiosk,
+            face_monitor_count=face_monitor_count,
             # Seeds for the end-user page (/user): the bus never replays, so a
             # fresh/reconnected kiosk gets the current state + talk-key hold.
             get_app_state=lambda: orchestrator.state.value,
@@ -694,6 +736,111 @@ async def run_app(provider_name: str = "gemini") -> None:
         # Steers the servo head off the shared camera; on shutdown its runner
         # stops the tracking thread and closes the ESP32 serial port.
         runners["head_tracker"] = head_tracker.run()
+
+    if face_server_up:
+        # Feed the animated face page the push-to-talk conversation phase, the
+        # same way the dashboard kiosk (user.js) renders it: held key = listening
+        # (green), reply streaming = talking (mouth), released-and-waiting =
+        # thinking (drifting eyes), otherwise idle. Same priority order as the
+        # kiosk — a held key wins, a live reply beats "thinking". Face-presence
+        # is handled separately by the head tracker (set_face_present).
+        # The agent-transcript "final" piece lands when the TEXT completes, which
+        # runs ahead of the AUDIO finishing (text streams faster than speech). So
+        # rather than freezing the mouth the instant the text ends, keep the
+        # "talking" phase alive for the reply's estimated remaining speaking time
+        # — the same trick the kiosk uses to hold the reply on screen.
+        _SPEAK_MS_PER_CHAR = 65
+        _TALK_LINGER_MIN = 1.2
+        _TALK_LINGER_MAX = 20.0
+
+        async def _forward_face_interaction() -> None:
+            held = False
+            app_active = False
+            speaking = False  # agent mid-reply (streaming, not yet final)
+            waiting = False   # key released, reply not yet arrived
+            phase = "idle"
+            reply_chars = 0                 # length of the reply streamed so far
+            reply_started = 0.0             # when its first piece arrived
+            linger_task: asyncio.Task | None = None
+
+            def resolve() -> str:
+                if held:
+                    return "listening"
+                if speaking:
+                    return "talking"
+                if waiting:
+                    return "thinking"
+                return "idle"
+
+            def push() -> None:
+                nonlocal phase
+                new_phase = resolve()
+                if new_phase != phase:
+                    phase = new_phase
+                    face_server.set_interaction(phase)
+
+            def cancel_linger() -> None:
+                nonlocal linger_task
+                if linger_task is not None:
+                    linger_task.cancel()
+                    linger_task = None
+
+            async def linger(seconds: float) -> None:
+                nonlocal speaking
+                try:
+                    await asyncio.sleep(seconds)
+                    speaking = False
+                    push()
+                except asyncio.CancelledError:
+                    pass
+
+            stream = bus.subscribe(TalkKeyChanged, StateChanged, AgentSaid)
+            async for event in stream:
+                if isinstance(event, TalkKeyChanged):
+                    held = event.held
+                    if held:
+                        cancel_linger()
+                        speaking = waiting = False  # talking now → drop old reply
+                    elif app_active:
+                        waiting = True  # released → expect a reply
+                elif isinstance(event, StateChanged):
+                    app_active = event.new == "active"
+                    if not app_active:
+                        cancel_linger()
+                        speaking = waiting = False  # session over → back to idle
+                elif isinstance(event, AgentSaid):
+                    waiting = False
+                    cancel_linger()
+                    now = asyncio.get_running_loop().time()
+                    if not speaking:
+                        reply_chars = 0
+                        reply_started = now
+                    speaking = True
+                    reply_chars += len(event.text)
+                    if event.final:
+                        # Hold "talking" for the audio still to play out.
+                        spoken = now - reply_started
+                        remaining = reply_chars * _SPEAK_MS_PER_CHAR / 1000 - spoken
+                        secs = min(_TALK_LINGER_MAX, max(_TALK_LINGER_MIN, remaining))
+                        linger_task = asyncio.create_task(linger(secs))
+                push()
+
+        runners["face_interaction"] = _forward_face_interaction()
+
+    if relaunch_face_kiosk is not None:
+        # Pop the fullscreen face on the configured monitor at boot — but a
+        # short beat AFTER everything else starts, so the dashboard's own boot
+        # browser tab (open_browser) can't steal focus back off it. Then stay
+        # alive: the run loop below treats the FIRST task to return as "a
+        # subsystem exited" and shuts down, so this must not finish on its own.
+        async def _boot_face_kiosk() -> None:
+            await asyncio.sleep(2.0)
+            await asyncio.to_thread(
+                relaunch_face_kiosk, settings.motion.face_kiosk_monitor
+            )
+            await asyncio.Event().wait()  # runs until cancelled at shutdown
+
+        runners["face_kiosk_boot"] = _boot_face_kiosk()
 
     tasks = [asyncio.create_task(coro, name=name) for name, coro in runners.items()]
     try:
